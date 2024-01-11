@@ -103,8 +103,7 @@ export type GGPOEvent<I> = GGPOEvent_synchronized | GGPOEvent_Input<I> | GGPOEve
 export type UDPPeerMsg_Ping = { time: TimeMS }
 export type UDPPeerMsg_Pong = { time: TimeMS }
 export type UDPPeerMsg_InputAck = { frame : Frame }
--- player messages are per player (from a peer), and they may or may not come from the peer that represents that player
-export type UDPPlayerMsg_Input<I> = FrameInputMap<I>
+
 
 export type QualityReport = { 
     frame_advantage : number, 
@@ -116,12 +115,18 @@ export type UDPMsg_QualityReport = {
     time : TimeMS,
 }
 
+export type UDPMsg_Input<I> = {
+    frame: Frame, -- this should match the frame in input if the peer is also a player
+    ack_frame : Frame,
+    inputs : PlayerFrameInputMap<I>
+}
+
 export type UDPMsg_Contents<I> = 
     UDPPeerMsg_Ping
     | UDPPeerMsg_Pong
     | UDPPeerMsg_InputAck 
-    | UDPPlayerMsg_QualityReport 
-    | UDPPlayerMsg_Input<I> 
+    | UDPMsg_QualityReport 
+    | UDPMsg_Input<I> 
     | PlayerFrameInputMap<I> 
     | UDPMsg_QualityReport
 
@@ -162,7 +167,13 @@ export type PlayerProxyInfo<I> = {
 
 
 
-export type GGPONetworkStats = nil
+export type GGPONetworkStats = {
+    max_send_queue_len : number,
+    ping : number,
+    kbps_sent : number,
+    local_frames_behind : number,
+    remote_frames_behind : number,
+}
 
 export type GGPOCallbacks<T,I> = {
     SaveGameState: (frame: number) -> T,
@@ -227,17 +238,20 @@ export type UDPProto<I> = {
 
     -- configuration
     sendLatency : number,
+    msPerFrame: number,
 
     -- rift calculation
+    lastReceivedFrame : Frame,
     round_trip_time : TimeMS,
     -- (according to peer) frame peer - frame self
-    remote_frame_advantge : number,
+    remote_frame_advantage : number,
     -- (according to self) frame self - frame peer
     local_frame_advantage : number,
 
     -- stats
     packets_sent : number,
     bytes_sent : number,
+    kbps_sent: number,
     stats_start_time : TimeMS,
     
     -- logging
@@ -286,14 +300,18 @@ local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
         player = 0,
         endpoint = uselessUDPEndpoint,
 
+        -- TODO configure
         sendLatency = 0,
+        msPerFrame = 50,
 
+        lastReceivedFrame = frameNull,
         round_trip_time = 0,
-        remote_frame_advantge = 0,
+        remote_frame_advantage = 0,
         local_frame_advantage = 0,
 
         packets_sent = 0,
         bytes_sent = 0,
+        kbps_sent = 0,
         stats_start_time = 0,
 
 
@@ -403,12 +421,12 @@ function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>)
 
     if msg.t == "Ping" then
         -- TODO
-    elseif msg.t == "Ping" then
+    elseif msg.t == "Pong" then
         -- TODO
     elseif msg.t == "InputAck" and typeof(msg.m) == typeof({} :: { frame : number }) then
         UDPProto_OnInputAck(udpproto, msg.m)
         -- TODO
-    elseif msg.t == "Input" and typeof(msg.m) == typeof({} :: PlayerFrameInputMap<I>) then
+    elseif msg.t == "Input" and typeof(msg.m) == typeof({} :: UDPMsg_Input<I>) then
         UDPProto_OnInput(udpproto, msg.m)
         -- TODO
     elseif msg.t == "QualityReport" then
@@ -435,10 +453,10 @@ function UDPProto_UpdateNetworkStats<I>(udpproto : UDPProto<I>)
    local bps = total_bytes_sent / seconds;
    local udp_overhead = (100.0 * (UDP_HEADER_SIZE * udpproto.packets_sent) / udpproto.bytes_sent)
 
-   local kbps = bps / 1024;
+   udpproto.kbps_sent = bps / 1024;
 
    Log("Network Stats -- Bandwidth: %.2f KBps   Packets Sent: %5d (%.2f pps)   KB Sent: %.2f    UDP Overhead: %.2f %%.\n",
-       kbps,
+       udpproto.kbps_sent,
        udpproto.packets_sent,
        udpproto.packets_sent * 1000 / (now - udpproto.stats_start_time),
        total_bytes_sent / 1024.0,
@@ -450,14 +468,18 @@ function UDPProto_QueueEvent<I>(udpproto : UDPProto<I>, evt : GGPOEvent<I>)
     udpproto.event_queue:enqueue(evt)
 end
 
-function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  PlayerFrameInputMap<I>) 
-    if #msg == 0 then
+function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I>) 
+
+    udpproto.lastReceivedFrame = msg.frame
+
+    local inputs = msg.inputs
+    if #inputs == 0 then
         Log("UDPProto_OnInput: Received empty msg")
         return
     end
 
     local lastFrame
-    for player, data in pairs(msg) do
+    for player, data in pairs(inputs) do
         
         -- for now, assume frames are contiguous
         lastFrame = FrameInputMap_lastFrame(data)
@@ -468,7 +490,7 @@ function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  PlayerFrameInputMap<
         end
     end
 
-    UDPProto_QueueEvent(udpproto, msg)
+    UDPProto_QueueEvent(udpproto, inputs)
 end
 
 function UDPProto_OnInputAck<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_InputAck) 
@@ -494,13 +516,50 @@ function UDPProto_OnPong<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_Pong)
 end
 
 function UDPProto_OnQualityReport<I>(udpproto : UDPProto<I>, msg : UDPMsg_QualityReport) 
-    udpproto.remote_frame_advantge = msg.peer.frame_advantage
+    udpproto.remote_frame_advantage = msg.peer.frame_advantage
     for player, data in pairs(msg.player) do
         udpproto.playerData[player].frame_advantage = data.frame_advantage
     end
 
     UDPProto_SendMsg(udpproto, "Pong", { time = msg.time })
 end
+
+
+
+function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : GGPONetworkStats
+
+    local maxQueueLength = 0
+    for player, data in pairs(udpproto.playerData) do
+        if #data.pending_output > maxQueueLength then
+            maxQueueLength = #data.pending_output
+        end
+    end
+    
+    local s = {
+        max_send_queue_len = maxQueueLength,
+        ping = udpproto.round_trip_time,
+        kbps_sent = udpproto.kbps_sent,
+        local_frames_behind = udpproto.local_frame_advantage,
+        remote_frames_behind = udpproto.remote_frame_advantage,
+    }
+
+    return s
+end
+    
+function UDPProto_SetLocalFrameNumber(udpproto : UDPProto<I>, localFrame : number)
+
+    local remoteFrame = udpproto.lastReceivedFrame + udpproto.round_trip_time / udpproto.msPerFrame / 2
+    udpproto.local_frame_advantage = remoteFrame - localFrame
+end
+   
+function UDPProto_RecommendFrameDelay(udpproto : UDPProto<I>) : number
+    -- TODO
+   --// XXX: require idle input should be a configuration parameter
+   --return _timesync.recommend_frame_wait_duration(false);
+   return 0
+end
+
+
 
 
 
