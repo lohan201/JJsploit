@@ -61,6 +61,16 @@ function StringWrapperOnly(x : StringWrapper)
     print (x.s)
 end
 
+function definitelyabug(x : UnionType)
+    -- note x can never be of type string so this is extra bogus
+    if type(x) == "string" then
+        -- no type checker error🤷
+        NumberWrapperOnly(x)
+    end
+    -- type checker error as expected
+    NumberWrapperOnly(x)
+end
+
 function basicTypeRefinement(x : UnionType)
     if type(x) == type({} :: NumberWrapper) then
         -- ignore the whitespace
@@ -70,8 +80,17 @@ function basicTypeRefinement(x : UnionType)
         StringWrapperOnly(x)    
     end
 
-    if type(x) == "string" then
-        -- 🤷
-        NumberWrapperOnly(x)
-    end
+    
+end
+
+
+
+local stringOrNumber: string | number = "foo"
+
+if type(stringOrNumber) == "string" then
+    local onlyString: string = stringOrNumber -- ok
+end
+
+if type(stringOrNumber) ~= "string" then
+    local onlyNumber: number = stringOrNumber -- ok
 end
