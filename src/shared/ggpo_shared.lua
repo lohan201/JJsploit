@@ -1,8 +1,10 @@
 --!strict
 local Queue = require(script.Parent.util.queue)
 
+export type TimeMS = number
+
 -- helpers
-local function now() : number
+local function now() : TimeMS
     return DateTime.now().UnixTimestampMillis
 end
 
@@ -98,26 +100,38 @@ export type GGPOEvent<I> = GGPOEvent_synchronized | GGPOEvent_Input<I> | GGPOEve
 -- TODO get rid of these underscores
 -- UDPMsg types
 -- these replace sync packets which are not needed for Roblox
-export type UDPPeerMsg_PingRequest = { random_request : number }
-export type UDPPeerMsg_PingReply = { random_reply : number }
-export type UDPPeerMsg_InputAck = { frame : number }
--- player messages are per player, and they may or may not come from the peer that represents that player
+export type UDPPeerMsg_Ping = { time: TimeMS }
+export type UDPPeerMsg_Pong = { time: TimeMS }
+export type UDPPeerMsg_InputAck = { frame : Frame }
+-- player messages are per player (from a peer), and they may or may not come from the peer that represents that player
 export type UDPPlayerMsg_Input<I> = FrameInputMap<I>
 
-
-export type UDPPlayerMsg_QualityReport = { 
-    frame : number, 
-    ping : number,
+export type QualityReport = { 
+    frame_advantage : number, 
 }
-export type UDPPeerMsg<I> = UDPPeerMsg_PingRequest | UDPPeerMsg_PingReply | UDPPeerMsg_InputAck | UDPPlayerMsg_QualityReport | UDPPlayerMsg_Input<I>
-export type UDPMsg_Contents<I> = UDPPeerMsg<I> | PlayerFrameInputMap<I> | { [GGPOPlayerHandle] : UDPPlayerMsg_QualityReport }
 
-export type UDPMsg_Type = "PingRequest" | "PingReply" | "InputAck" | "Input" | "QualityReport" 
+export type UDPMsg_QualityReport = {
+    peer : QualityReport,
+    player: {[GGPOPlayerHandle] : QualityReport},
+    time : TimeMS,
+}
+
+export type UDPMsg_Contents<I> = 
+    UDPPeerMsg_Ping
+    | UDPPeerMsg_Pong
+    | UDPPeerMsg_InputAck 
+    | UDPPlayerMsg_QualityReport 
+    | UDPPlayerMsg_Input<I> 
+    | PlayerFrameInputMap<I> 
+    | UDPMsg_QualityReport
+
+export type UDPMsg_Type = "Ping" | "Pong" | "InputAck" | "Input" | "QualityReport" 
 export type UDPMsg<I> = {
     t : UDPMsg_Type,
     m : UDPMsg_Contents<I>,
     seq : number,
 }
+
 function UDPMsg_Size<I>(UDPMsg : UDPMsg<I>) : number
     return 0
 end
@@ -174,8 +188,8 @@ end
 
 export type UDPProto_Player<I> = {
     -- alternatively, consider storing these values as a { [GGPOPlayerHandle] : number } table, but this would require sending per player stats rather than just max
-    local_frame_advantage : number,
-    remote_frame_advantage : number,
+    -- (according to peer) frame peer - frame player
+    frame_advantage : number,
     pending_output : {[Frame] : GameInput<I>},
     last_received_input : GameInput<I>,
 
@@ -189,8 +203,7 @@ export type UDPProto_Player<I> = {
 
 function UDPProto_Player_new() : UDPProto_Player<any>
     local r = {
-        local_frame_advantage = 0,
-        remote_frame_advantage = 0,
+        frame_advantage = 0,
         pending_output = {},
         last_received_input = { frame = frameNull, input = nil },
         
@@ -215,11 +228,17 @@ export type UDPProto<I> = {
     -- configuration
     sendLatency : number,
 
-    -- stats and logging
-    round_trip_time : number,
+    -- rift calculation
+    round_trip_time : TimeMS,
+    -- (according to peer) frame peer - frame self
+    remote_frame_advantge : number,
+    -- (according to self) frame self - frame peer
+    local_frame_advantage : number,
+
+    -- stats
     packets_sent : number,
     bytes_sent : number,
-    stats_start_time : number,
+    stats_start_time : TimeMS,
     
     -- logging
     last_sent_input : GameInput<I>,
@@ -268,7 +287,11 @@ local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
         endpoint = uselessUDPEndpoint,
 
         sendLatency = 0,
+
         round_trip_time = 0,
+        remote_frame_advantge = 0,
+        local_frame_advantage = 0,
+
         packets_sent = 0,
         bytes_sent = 0,
         stats_start_time = 0,
@@ -378,14 +401,15 @@ function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>)
     udpproto.next_recv_seq = msg.seq;
     Log("recv %s", msg)
 
-    if msg.t == "PingRequest" then
+    if msg.t == "Ping" then
         -- TODO
-    elseif msg.t == "PingReply" then
+    elseif msg.t == "Ping" then
         -- TODO
-    elseif msg.t == "InputAck" then
+    elseif msg.t == "InputAck" and typeof(msg.m) == typeof({} :: { frame : number }) then
+        UDPProto_OnInputAck(udpproto, msg.m)
         -- TODO
-    elseif msg.t == "Input" and typeof(msg.m) == typeof({} ::  { [GGPOPlayerHandle] : UDPPlayerMsg_Input<I> }) then
-        UDPProto_OnInput(udpproto, msg)
+    elseif msg.t == "Input" and typeof(msg.m) == typeof({} :: PlayerFrameInputMap<I>) then
+        UDPProto_OnInput(udpproto, msg.m)
         -- TODO
     elseif msg.t == "QualityReport" then
         -- TODO
@@ -426,10 +450,7 @@ function UDPProto_QueueEvent<I>(udpproto : UDPProto<I>, evt : GGPOEvent<I>)
     udpproto.event_queue:enqueue(evt)
 end
 
-
-
 function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  PlayerFrameInputMap<I>) 
-
     if #msg == 0 then
         Log("UDPProto_OnInput: Received empty msg")
         return
@@ -450,16 +471,36 @@ function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  PlayerFrameInputMap<
     UDPProto_QueueEvent(udpproto, msg)
 end
 
+function UDPProto_OnInputAck<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_InputAck) 
+    -- remember, we ack the min frame of all inputs we received for now
+    for player, data in pairs(udpproto.playerData) do
+        local start = FrameInputMap_firstFrame(data.pending_output)
+        if start ~= frameNull and start <= msg.frame then
+            for i = start, msg.frame, 1 do
+                table.remove(data.pending_output, i)
+            end
+        end
+    end
+end
 
 
+function UDPProto_OnPing<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_Ping) 
+    UDPProto_SendMsg(udpproto, "Pong", msg)
+end
 
+function UDPProto_OnPong<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_Pong) 
+    -- TODO maybe rolling average this?
+    udpproto.round_trip_time = now() - msg.time
+end
 
+function UDPProto_OnQualityReport<I>(udpproto : UDPProto<I>, msg : UDPMsg_QualityReport) 
+    udpproto.remote_frame_advantge = msg.peer.frame_advantage
+    for player, data in pairs(msg.player) do
+        udpproto.playerData[player].frame_advantage = data.frame_advantage
+    end
 
-
-
-
-
-
+    UDPProto_SendMsg(udpproto, "Pong", { time = msg.time })
+end
 
 
 
