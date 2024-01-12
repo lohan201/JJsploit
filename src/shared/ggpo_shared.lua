@@ -97,12 +97,15 @@ export type GGPOEvent_disconnected = {
 export type GGPOEvent<I> = GGPOEvent_synchronized | GGPOEvent_Input<I> | GGPOEvent_interrupted | GGPOEvent_resumed | GGPOEvent_disconnected
   
 
+
+export type UDPMsg_Type = "Ping" | "Pong" | "InputAck" | "Input" | "QualityReport" 
+
 -- TODO get rid of these underscores
 -- UDPMsg types
 -- these replace sync packets which are not needed for Roblox
-export type UDPPeerMsg_Ping = { time: TimeMS }
-export type UDPPeerMsg_Pong = { time: TimeMS }
-export type UDPPeerMsg_InputAck = { frame : Frame }
+export type UDPPeerMsg_Ping = { t: "Ping", time: TimeMS }
+export type UDPPeerMsg_Pong = { t: "Pong", time: TimeMS }
+export type UDPPeerMsg_InputAck = { t: "InputAck", frame : Frame }
 
 
 export type QualityReport = { 
@@ -110,16 +113,19 @@ export type QualityReport = {
 }
 
 export type UDPMsg_QualityReport = {
+    t: "QualityReport", 
     peer : QualityReport,
     player: {[GGPOPlayerHandle] : QualityReport},
     time : TimeMS,
 }
 
 export type UDPMsg_Input<I> = {
-    frame: Frame, -- this should match the frame in input if the peer is also a player
+    t : "Input",
+    frame : Frame, -- this should match the frame in input if the peer is also a player
     ack_frame : Frame,
     inputs : PlayerFrameInputMap<I>
 }
+
 
 export type UDPMsg_Contents<I> = 
     UDPPeerMsg_Ping
@@ -127,12 +133,9 @@ export type UDPMsg_Contents<I> =
     | UDPPeerMsg_InputAck 
     | UDPMsg_QualityReport 
     | UDPMsg_Input<I> 
-    | PlayerFrameInputMap<I> 
     | UDPMsg_QualityReport
 
-export type UDPMsg_Type = "Ping" | "Pong" | "InputAck" | "Input" | "QualityReport" 
 export type UDPMsg<I> = {
-    t : UDPMsg_Type,
     m : UDPMsg_Contents<I>,
     seq : number,
 }
@@ -348,7 +351,7 @@ function UDPProto_SendPendingOutput<I>(udpproto : UDPProto<I>)
     end
    
    --msg->u.input.ack_frame = _last_received_input.frame;
-   UDPProto_SendMsg(udpproto, "Input", msg)
+   UDPProto_SendMsg(udpproto, msg)
 end
 
 function UDPProto_SendInputAck<I>(udpproto : UDPProto<I>)
@@ -362,7 +365,7 @@ function UDPProto_SendInputAck<I>(udpproto : UDPProto<I>)
         end
     end
     local msg = { frame = minFrame }
-    UDPProto_SendMsg(udpproto, "InputAck", msg)
+    UDPProto_SendMsg(udpproto, msg)
 end
 
 function UDPProto_GetEvent<I>(udpproto : UDPProto<I>) : GGPOEvent<I>?
@@ -392,9 +395,8 @@ end
 
 
 
-function UDPProto_SendMsg<I>(udpproto : UDPProto<I>, t : UDPMsg_Type, msgc : UDPMsg_Contents<I>)
+function UDPProto_SendMsg<I>(udpproto : UDPProto<I>, msgc : UDPMsg_Contents<I>)
     local msg = {
-        t = t,
         m = msgc,
         seq = udpproto.next_send_seq,
     }
@@ -407,41 +409,10 @@ function UDPProto_SendMsg<I>(udpproto : UDPProto<I>, t : UDPMsg_Type, msgc : UDP
     udpproto.endpoint.send(msg)
 end
 
-function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>) 
-
-    --filter out out-of-order packets
-    local skipped = msg.seq - udpproto.next_recv_seq
-    if skipped > MAX_SEQ_DISTANCE then
-        Log("Dropping out of order packet (seq: %d, last seq: %d)", msg.seq, udpproto.next_recv_seq)
-        return
-    end
-
-    udpproto.next_recv_seq = msg.seq;
-    Log("recv %s", msg)
-
-    if msg.t == "Ping" then
-        -- TODO
-    elseif msg.t == "Pong" then
-        -- TODO
-    elseif msg.t == "InputAck" and typeof(msg.m) == typeof({} :: { frame : number }) then
-        UDPProto_OnInputAck(udpproto, msg.m)
-        -- TODO
-    elseif msg.t == "Input" and typeof(msg.m) == typeof({} :: UDPMsg_Input<I>) then
-        UDPProto_OnInput(udpproto, msg.m)
-        -- TODO
-    elseif msg.t == "QualityReport" then
-        -- TODO
-    else
-        Log("Unknown message type: %s", msg.t)
-    end
-
-    -- TODO resume if disconnected
-    --_last_recv_time = Platform::GetCurrentTimeMS();
-end
 
 
 local UDP_HEADER_SIZE = 0
-function UDPProto_UpdateNetworkStats<I>(udpproto : UDPProto<I>) 
+local function UDPProto_UpdateNetworkStats<I>(udpproto : UDPProto<I>) 
    local now = now()
    
    if udpproto.stats_start_time == 0 then
@@ -463,12 +434,12 @@ function UDPProto_UpdateNetworkStats<I>(udpproto : UDPProto<I>)
        udp_overhead)
 end
 
-function UDPProto_QueueEvent<I>(udpproto : UDPProto<I>, evt : GGPOEvent<I>)
+local function UDPProto_QueueEvent<I>(udpproto : UDPProto<I>, evt : GGPOEvent<I>)
     Log("Queuing event: %s", evt);
     udpproto.event_queue:enqueue(evt)
 end
 
-function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I>) 
+local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I>) 
 
     udpproto.lastReceivedFrame = msg.frame
 
@@ -493,7 +464,7 @@ function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I>)
     UDPProto_QueueEvent(udpproto, inputs)
 end
 
-function UDPProto_OnInputAck<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_InputAck) 
+local function UDPProto_OnInputAck<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_InputAck) 
     -- remember, we ack the min frame of all inputs we received for now
     for player, data in pairs(udpproto.playerData) do
         local start = FrameInputMap_firstFrame(data.pending_output)
@@ -506,25 +477,54 @@ function UDPProto_OnInputAck<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_InputAc
 end
 
 
-function UDPProto_OnPing<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_Ping) 
-    UDPProto_SendMsg(udpproto, "Pong", msg)
+local function UDPProto_OnPing<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_Ping) 
+    UDPProto_SendMsg(udpproto, { t = "Pong", time = msg.time })
 end
 
-function UDPProto_OnPong<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_Pong) 
+local function UDPProto_OnPong<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_Pong) 
     -- TODO maybe rolling average this?
     udpproto.round_trip_time = now() - msg.time
 end
 
-function UDPProto_OnQualityReport<I>(udpproto : UDPProto<I>, msg : UDPMsg_QualityReport) 
+local function UDPProto_OnQualityReport<I>(udpproto : UDPProto<I>, msg : UDPMsg_QualityReport) 
     udpproto.remote_frame_advantage = msg.peer.frame_advantage
     for player, data in pairs(msg.player) do
         udpproto.playerData[player].frame_advantage = data.frame_advantage
     end
 
-    UDPProto_SendMsg(udpproto, "Pong", { time = msg.time })
+    UDPProto_SendMsg(udpproto, { t = "Pong", time = msg.time })
 end
 
 
+function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>) 
+
+    --filter out out-of-order packets
+    local skipped = msg.seq - udpproto.next_recv_seq
+    if skipped > MAX_SEQ_DISTANCE then
+        Log("Dropping out of order packet (seq: %d, last seq: %d)", msg.seq, udpproto.next_recv_seq)
+        return
+    end
+
+    udpproto.next_recv_seq = msg.seq;
+    Log("recv %s", msg)
+
+    if msg.m.t == "Ping" then
+        UDPProto_OnPing(udpproto, msg.m)
+    elseif msg.m.t == "Pong" then
+        UDPProto_OnPong(udpproto, msg.m)
+    elseif msg.m.t == "InputAck" then
+        UDPProto_OnInputAck(udpproto, msg.m)
+    elseif msg.m.t == "Input" then
+        UDPProto_OnInput(udpproto, msg.m)
+    elseif msg.m.t == "QualityReport" then
+        UDPProto_OnQualityReport(udpproto, msg.m)
+    else
+        Log("Unknown message type: %s", msg.m.t)
+    end
+
+    -- TODO resume if disconnected
+    --_last_recv_time = Platform::GetCurrentTimeMS();
+end
 
 function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : GGPONetworkStats
 

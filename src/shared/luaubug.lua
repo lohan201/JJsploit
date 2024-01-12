@@ -50,8 +50,8 @@ end
 
 
 
-export type NumberWrapper = { n : number }
-export type StringWrapper = { s : string }
+export type NumberWrapper = { tag : "NumberWrapper", n : number }
+export type StringWrapper = { tag : "StringWrapper", s : string }
 export type UnionType = NumberWrapper | StringWrapper
 
 function NumberWrapperOnly(x : NumberWrapper)
@@ -72,11 +72,9 @@ function definitelyabug(x : UnionType)
 end
 
 function basicTypeRefinement(x : UnionType)
-    if type(x) == type({} :: NumberWrapper) then
-        -- ignore the whitespace
-        -- it's just so I can take clear screencap
-                                            NumberWrapperOnly(x)
-    elseif type(x) == type({} :: StringWrapper) then
+    if x.tag == "NumberWrapper" then
+        NumberWrapperOnly(x)
+    elseif x.tag == "stringWrapper" then
         StringWrapperOnly(x)    
     end
 
