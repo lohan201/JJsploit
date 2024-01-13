@@ -211,6 +211,7 @@ export type GGPOCallbacks<T,I> = {
 }
 
 
+-- DONE UNTESTED
 export type InputQueue<I> = {
     player : GGPOPlayerHandle,
     first_frame : boolean,
@@ -360,7 +361,7 @@ function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameIn
 end
    
 
--- Sync
+-- DONE UNTESTED
 export type Sync<T,I> = {
     callbacks : GGPOCallbacks<T,I>,
     savedstate : { [Frame] : { state : T, checksum : string } },
@@ -553,7 +554,7 @@ end
 
 local MAX_SEQ_DISTANCE = 8
 
--- udp_proto
+-- DONE UNTESTED
 -- manages synchronizing with a single peer
 -- in particular, manages the following:
 -- sending and acking input
