@@ -17,9 +17,7 @@ end
 
 -- CONSTANTS
 local serverHandle = 99999999999
--- TODO negative frames used for synchronizing start times maybe
 local frameInit = 0
-local frameStart = 0
 local frameNull = -999999999999
 local frameMax = 9999999999999
 local frameMin = frameNull+1 -- just so we can distinguish between null and min
