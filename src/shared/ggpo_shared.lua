@@ -17,8 +17,8 @@ end
 
 -- CONSTANTS
 local serverHandle = 99999999999
--- negative frames used for synchronizing start times
-local frameInit = -10
+-- TODO negative frames used for synchronizing start times maybe
+local frameInit = 0
 local frameStart = 0
 local frameNull = -999999999999
 local frameMax = 9999999999999
@@ -35,6 +35,7 @@ export type GameConfig = {
 }
 
 export type GameInput<I> = {
+    -- TODO remove this, not needed
     -- the destination frame of this input
     frame: Frame,
 
@@ -72,7 +73,24 @@ function FrameInputMap_firstFrame<I>(msg : FrameInputMap<I>) : Frame
     return firstFrame
 end
 
+export type PlayerInputMap<I> = {[GGPOPlayerHandle] : GameInput<I>}
+
 export type PlayerFrameInputMap<I> = {[GGPOPlayerHandle] : FrameInputMap<I>}
+
+function PlayerFrameInputMap_firstFrame<I>(msg : PlayerFrameInputMap<I>) : Frame
+    if #msg == 0 then
+        return frameNull
+    end
+
+    local firstFrame = frameMax
+    for player, data in pairs(msg) do
+        local f = FrameInputMap_firstFrame(data)
+        if f < firstFrame then
+            firstFrame = f
+        end
+    end
+    return firstFrame
+end
 
 function PlayerFrameInputMap_addInputs<I>(a : PlayerFrameInputMap<I>, b : PlayerFrameInputMap<I>)
     for player, frameData in pairs(b) do
@@ -82,6 +100,12 @@ function PlayerFrameInputMap_addInputs<I>(a : PlayerFrameInputMap<I>, b : Player
             a[player][frame] = input
         end
 end
+
+
+
+
+
+
 
 -- GGPOEvent types
 export type GGPOEvent_synchronized = {
@@ -187,17 +211,319 @@ export type GGPOCallbacks<T,I> = {
 }
 
 
+export type InputQueue<I> = {
+    player : GGPOPlayerHandle,
+    first_frame : boolean,
 
-export type Sync<I> = {
-    inputMap : PlayerFrameInputMap<I>,
+    last_user_added_frame : number,
+    last_added_frame : number,
+    first_incorrect_frame : number,
+    last_frame_requested : number,
+
+    frame_delay : number,
+
+    inputs : FrameInputMap<I>,
 }
 
-function Sync_new<I>() : Sync<I>
+function InputQueue_new<I>(player: GGPOPlayerHandle, frame_delay : number) : InputQueue<I>
     local r = {
-        inputMap = {},
+        player = player,
+        first_frame = true,
+
+        last_user_added_frame = frameNull,
+        last_added_frame = frameNull,
+        first_incorrect_frame = frameNull,
+        last_frame_requested = frameNull,
+
+        frame_delay = frame_delay,
+
+        inputs = {},
     }
     return r
 end
+
+function InputQueue_SetFrameDelay<I>(inputQueue : InputQueue<I>, delay : number)
+    inputQueue.frame_delay = delay
+end
+
+function InputQueue_GetLastConfirmedFrame<I>(inputQueue : InputQueue<I>) : Frame
+    return inputQueue.last_added_frame
+end
+
+function InputQueue_GetFirstIncorrectFrame<I>(inputQueue : InputQueue<I>) : Frame
+    return inputQueue.first_incorrect_frame
+end
+
+-- cleanup confirmed frames, we will never roll back to these
+function InputQueue_DiscardConfirmedFrames<I>(inputQueue : InputQueue<I>, frame : Frame)
+    assert(frame >= 0)
+
+    -- don't discard frames further back then we've last requested them :O
+    if inputQueue.last_frame_requested ~= frameNull then
+        frame = math.min(frame, inputQueue.last_frame_requested)
+    end
+
+    Log("discarding confirmed frames up to %d (last_added:%d).\n", frame, inputQueue.last_added_frame)
+
+    local start = FrameInputMap_firstFrame(inputQueue.inputs)
+    if start ~= frameNull and start <= frame then
+        for i = start, frame, 1 do
+            table.remove(inputQueue.inputs, i)
+        end
+    end
+    
+end
+
+
+function InputQueue_GetConfirmedInput<I>(inputQueue : InputQueue<I>, frame : Frame) : GameInput<I>
+    assert(inputQueue.first_incorrect_frame == frameNull or frame < inputQueue.first_incorrect_frame)
+    local fd = inputQueue.inputs[frame]
+    assert(fd, "expected frame %d to exist, this probably means the frame has not been confirmed for this player!", frame)
+    return fd
+end
+
+
+
+function InputQueue_GetInput<I>(inputQueue : InputQueue<I>, frame : Frame) : GameInput<I>
+    Log("requesting input frame %d.\n", frame);
+
+    --[[
+    No one should ever try to grab any input when we have a prediction
+    error.  Doing so means that we're just going further down the wrong
+    path.  ASSERT this to verify that it's true.
+    ]]
+    assert(inputQueue.first_incorrect_frame == GameInput::NullFrame);
+
+    -- TODO prob don't need this
+    inputQueue.last_frame_requested = frame;
+
+    local fd = inputQueue.inputs[frame]
+    if fd then
+        return fd
+    else
+        local lastFrame = FrameInputMap_lastFrame(inputQueue.inputs)
+        -- eventually we may drop this requirement and use a more complex prediction algorithm, in particular, we may have inputs from the future 
+        assert(lastFrame < frame, "expected frame used for prediction to be less than requested frame")
+        if lastFrame ~= frameNull then
+            Log("basing new prediction frame from previously added frame (player:%d, frame:%d).", player, lastFrame)
+            return inputQueue.inputs[lastFrame]
+        else
+            Log("basing new prediction frame from nothing, since we have no frames yet.");
+            return { frame = frame, input = nil}
+        end
+        Log("requested frame %d not found in queue.\n", frame);
+    end
+end
+
+
+-- advance the queue head to target frame and returns frame with delay applied
+function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Frame) : Frame
+    Log("advancing queue head to frame %d.\n", frame)
+
+    local expected_frame = inputQueue.first_frame and 0 or FrameInputMap_lastFrame(inputQueue.inputs) + 1
+    frame += inputQueue.frame_delay
+
+    if expected_frame > frame then
+        -- this can occur when the frame delay has dropped since the last time we shoved a frame into the system.  In this case, there's no room on the queue.  Toss it.
+        Log("Dropping input frame %d (expected next frame to be %d).\n", frame, expected_frame)
+        return frameNull
+    end
+
+    -- this can occur when the frame delay has been increased since the last time we shoved a frame into the system.  We need to replicate the last frame in the queue several times in order to fill the space left.
+    if expected_frame < frame then
+        local last_frame = FrameInputMap_lastFrame(inputQueue.inputs)
+        while expected_frame < frame do
+            Log("Adding padding frame %d to account for change in frame delay.\n", expected_frame)
+            inputQueue.inputs[expected_frame] = { frame = expected_frame, input = inputQueue.inputs[last_frame].input }
+            expected_frame += 1
+        end
+    end
+    return frame
+end
+
+function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameInput<I>) 
+    Log("adding input frame %d to queue.\n", inout_input.frame)
+
+    -- verify that inputs are passed in sequentially by the user, regardless of frame delay.
+    assert(inputQueue.last_user_added_frame == frameNull or inout_input.frame == inputQueue.last_user_added_frame + 1)
+    inputQueue.last_user_added_frame = inout_input.frame
+
+    local new_frame = InputQueue_AdvanceQueueHead(inputQueue, inout_input.frame)
+
+    -- ug
+    inout_input.frame = new_frame
+
+    if new_frame ~= frameNull then
+        inputQueue.inputs[new_frame] = inout_input
+        inputQueue.last_added_frame = new_frame
+    end
+end
+   
+
+-- Sync
+export type Sync<T,I> = {
+    callbacks : GGPOCallbacks<T,I>,
+    savedstate : { [Frame] : { state : T, checksum : string } },
+    rollingback : bool,
+    last_confirmed_frame : number,
+    framecount : number,
+    max_prediction_frames : number,
+    -- TODO rename input_queues
+    input_queue : {[GGPOPlayerHandle] : InputQueue<I>},
+}
+
+
+function Sync_new<T,I>(max_prediction_frames: number, callbacks: GGPOCallbacks<T,I>) : Sync<T,I>
+    local r = {
+        callbacks = callbacks,
+        savedstate = {},
+        max_prediction_frames = max_prediction_frames,
+        rollingback = false,
+        last_confirmed_frame = frameNull,
+        framecount = 0,
+
+        -- TODO preallocate players
+        input_queue = {},
+    }
+    return r
+end
+
+function Sync_SetLastConfirmedFrame<T,I>(sync : Sync<T,I>, frame : number)
+    sync.last_confirmed_frame = frame
+    
+    -- we may eventually allow input on frameInit (to transmit per-player data) so use >= here
+    if frame >= frameInit then
+        for player, data in pairs(sync.input_queue) do
+            local fd = data[frame]
+            if fd then
+                local start = FrameInputMap_firstFrame(fd)
+                for i = start, frame, 1 do
+                    table.remove(fd, i)
+                end
+            end
+        end
+    end
+end
+
+
+function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, input : GameInput<I>) : boolean
+
+    -- reject local input if we've gone too far ahead
+    local frames_behind = sync.framecount - sync.last_confirmed_frame
+    if sync.framecount >= sync.max_prediction_frames and frames_behind >= sync.max_prediction_frames then
+        Log("Rejecting input from emulator: reached prediction barrier.\n");
+        return false
+    end
+
+    if sync.framecount == 0 then
+        Sync_SaveCurrentFrame(sync)
+    end
+
+    Log("Adding undelayed local frame %d for player %d.\n", sync.framecount, player)
+    assert(input.frame == sync.framecount, "expected input frame to match current frame")
+    input.frame = sync.framecount
+    InputQueue_AddInput(sync.input_queue[player], input)
+    return true
+end
+
+function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, input : GameInput<I>)
+    InputQueue_AddInput(sync.input_queue[player], input)
+end
+
+
+function Sync_GetConfirmedInputs<T,I>(sync : Sync<T,I>, frame: Frame) : PlayerInputMap<I>
+    local r = {}
+    for player, iq in pairs(sync.input_queue) do
+        r[player] = InputQueue_GetConfirmedInput(iq, frame)
+    end
+    return r
+end
+
+
+function Sync_SynchronizeInputs<T,I>(sync : Sync<T,I>) : PlayerInputMap<I>
+    local r = {}
+    for player, iq in pairs(sync.input_queue) do
+        r[player] = InputQueue_GetInput(iq, sync.framecount)
+    end
+    return r
+end
+
+function Sync_CheckSimulation<T,I>(sync : Sync<T,I>)
+    local seekto = Sync_CheckSimulationConsistency(sync)
+    if seekto ~= frameNull then
+        Sync_AdjustSimulation(sync, seekto);
+    end
+end
+
+function Sync_IncrementFrame<T,I>(sync : Sync<T,I>)
+    sync.framecount += 1
+    Sync_SaveCurrentFrame(sync)
+end
+
+
+function Sync_AdjustSimulation<T,I>(sync : Sync<T,I>, seek_to : number)
+    local framecount = sync.framecount
+    local count = sync.framecount - seek_to
+    Log("Catching up\n")
+    sync.rollingback = true
+
+    Sync_LoadFrame(sync, seek_to)
+    assert(sync.framecount == seek_to)
+
+    for i = 0, count, 1 do
+        -- NOTE this is reentrant!
+        sync.callbacks.AdvanceFrame()
+    end
+    assert(sync.framecount == framecount)
+    sync.rollingback = false
+end
+
+function Sync_LoadFrame<T,I>(sync : Sync<T,I>, frame : Frame) 
+    if frame == sync.framecount then
+        Log("Skipping NOP.")
+    end
+
+    local state = sync.savedstate[frame]
+
+    Log("Loading frame info %d checksum: %s", frame, state.checksum)
+
+    sync.callbacks.LoadGameState(state.state, frame)
+end
+
+function Sync_SaveCurrentFrame<T,I>(sync : Sync<T,I>)
+    local state = sync.callbacks.SaveGameState(sync.framecount)
+    local checksum = "TODO"
+    sync.savedstate[sync.framecount] = { state = state, checksum = checksum }
+    Log("Saved frame info %d (checksum: %08x).\n", sync.framecount, checksum)
+end
+
+function Sync_GetSavedFrame<T,I>(sync : Sync<T,I>, frame : Frame) 
+    return sync.savedstate[frame]
+end
+
+
+function Sync_CheckSimulationConsistency<T,I>(sync : Sync<T,I>) : Frame
+    local first_incorrect = frameNull
+    for player, iq in pairs(sync.input_queue) do
+        local incorrect = InputQueue_GetFirstIncorrectFrame(iq)
+        if incorrect ~= frameNull and (first_incorrect == frameNull or incorrect < first_incorrect) then
+            first_incorrect = incorrect
+        end
+    end
+
+    if first_incorrect == frameNull then
+        Log("prediction ok.  proceeding.\n")
+    end
+
+    return first_incorrect
+end
+
+function Sync_SetFrameDelay<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, delay : number)
+    sync.input_queue[player].frame_delay = delay
+end
+
+
+
 
 
 export type UDPProto_Player<I> = {
@@ -547,7 +873,6 @@ function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : GGPONetworkStats
 end
     
 function UDPProto_SetLocalFrameNumber(udpproto : UDPProto<I>, localFrame : number)
-
     local remoteFrame = udpproto.lastReceivedFrame + udpproto.round_trip_time / udpproto.msPerFrame / 2
     udpproto.local_frame_advantage = remoteFrame - localFrame
 end
@@ -565,6 +890,7 @@ end
 
 
 
+--[[
 -- GGPO_Peer
 local GGPO_Peer = {}
 
@@ -625,3 +951,4 @@ end
 
 
 
+]]
