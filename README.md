@@ -19,9 +19,11 @@ the main implementation is roblox-agnostic, so you could in principle use it out
 ## finished + tested
 
 ## finished 
-- udp_proto
 - inputqueue
 - sync
+
+## WIP
+- udp_proto (needs frame advantage computation adjusted for graph network)
 
 ## TODO
 - everything else

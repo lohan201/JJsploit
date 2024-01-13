@@ -25,6 +25,7 @@ local frameMax = 9999999999999
 local frameMin = frameNull+1 -- just so we can distinguish between null and min
 
 
+
 -- TYPES
 export type Frame = number
 export type GGPOPlayerHandle = number
@@ -120,53 +121,6 @@ export type GGPOEvent_disconnected = {
 }
 export type GGPOEvent<I> = GGPOEvent_synchronized | GGPOEvent_Input<I> | GGPOEvent_interrupted | GGPOEvent_resumed | GGPOEvent_disconnected
   
-
-
-export type UDPMsg_Type = "Ping" | "Pong" | "InputAck" | "Input" | "QualityReport" 
-
--- TODO get rid of these underscores
--- UDPMsg types
--- these replace sync packets which are not needed for Roblox
-export type UDPPeerMsg_Ping = { t: "Ping", time: TimeMS }
-export type UDPPeerMsg_Pong = { t: "Pong", time: TimeMS }
-export type UDPPeerMsg_InputAck = { t: "InputAck", frame : Frame }
-
-
-export type QualityReport = { 
-    frame_advantage : number, 
-}
-
-export type UDPMsg_QualityReport = {
-    t: "QualityReport", 
-    peer : QualityReport,
-    player: {[GGPOPlayerHandle] : QualityReport},
-    time : TimeMS,
-}
-
-export type UDPMsg_Input<I> = {
-    t : "Input",
-    frame : Frame, -- this should match the frame in input if the peer is also a player
-    ack_frame : Frame,
-    inputs : PlayerFrameInputMap<I>
-}
-
-
-export type UDPMsg_Contents<I> = 
-    UDPPeerMsg_Ping
-    | UDPPeerMsg_Pong
-    | UDPPeerMsg_InputAck 
-    | UDPMsg_QualityReport 
-    | UDPMsg_Input<I> 
-    | UDPMsg_QualityReport
-
-export type UDPMsg<I> = {
-    m : UDPMsg_Contents<I>,
-    seq : number,
-}
-
-function UDPMsg_Size<I>(UDPMsg : UDPMsg<I>) : number
-    return 0
-end
 
 export type UDPEndpoint<I> = {
     send: (UDPMsg<I>) -> (),
@@ -524,6 +478,82 @@ function Sync_SetFrameDelay<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, de
 end
 
 
+-- TODO make these configureable
+local MIN_FRAME_ADVANTAGE = 3
+local MAX_FRAME_ADVANTAGE = 9
+
+-- DONE untested
+export type TimeSync = {
+    localRollingFrameAdvantage : number,
+    remoteRollingFrameAdvantage : {[GGPOPlayerHandle] : number},
+}
+
+function TimeSync_new() : TimeSync
+    local r = {
+        localRollingFrameAdvantage = 0,
+        remoteRollingFrameAdvantage = {},
+    }
+    return r
+end
+
+function TimeSync_advance_frame(timesync : TimeSync, advantage : number, radvantage : {[GGPOPlayerHandle] : number})
+    local w = 0.5
+    timesync.localRollingFrameAdvantage = timesync.localRollingFrameAdvantage * (1-w) + advantage*w
+    for player, adv in pairs(radvantage) do
+        if timesync.remoteRollingFrameAdvantage[player] == nil then
+            timesync.remoteRollingFrameAdvantage[player] = adv
+        else
+            timesync.remoteRollingFrameAdvantage[player] = timesync.remoteRollingFrameAdvantage[player] * (1-w) + adv*w
+        end
+    end
+end
+
+function TimeSync_recommend_frame_wait_duration(timesync : TimeSync) : number
+    if #timesync.remoteRollingFrameAdvantge == 0 then
+        return 0
+    end
+
+    local advantage = timesync.localRollingFrameAdvantage
+
+
+    local radvantagemin
+    local radvantagemax
+    
+    for player, adv in pairs(timesync.remoteRollingFrameAdvantage) do
+        if radvantagemin == nil then
+            radvantagemin = adv
+            radvantagemax = adv
+        else
+            radvantagemin = math.min(adv, radvantagemin)
+            radvantagemax = math.max(adv, radvantagemax)
+        end
+    end
+
+    -- LOL why not IDK
+    local radvantage = (radvantagemin + radvantagemax) / 2
+
+    -- See if someone should take action.  The person furthest ahead needs to slow down so the other user can catch up. Only do this if both clients agree on who's ahead!!
+    if advantage >= radvantage then
+        return 0
+    end
+
+    -- Both clients agree that we're the one ahead.  Split the difference between the two to figure out how many frames too  to sleep for.
+    local sleep_frames = math.floor(((radvantage - advantage) / 2) + 0.5)
+
+    Log("sleep frames is %d\n", sleep_frames)
+
+    if sleep_frames < MIN_FRAME_ADVANTAGE then
+        return 0
+    end
+
+    -- original ggpo does input checking here, but in our implementation we leave it up to the caller to determine whether to follow the rec or not.
+
+    return math.min(sleep_frames, MAX_FRAME_ADVANTAGE)
+end
+
+
+
+
 
 
 
@@ -552,7 +582,55 @@ function UDPProto_Player_new() : UDPProto_Player<any>
     return r
 end
 
+
+
 local MAX_SEQ_DISTANCE = 8
+
+export type UDPMsg_Type = "Ping" | "Pong" | "InputAck" | "Input" | "QualityReport" 
+
+-- TODO get rid of these underscores
+-- UDPMsg types
+-- these replace sync packets which are not needed for Roblox
+export type UDPPeerMsg_Ping = { t: "Ping", time: TimeMS }
+export type UDPPeerMsg_Pong = { t: "Pong", time: TimeMS }
+export type UDPPeerMsg_InputAck = { t: "InputAck", frame : Frame }
+
+
+export type QualityReport = { 
+    frame_advantage : number, 
+}
+
+export type UDPMsg_QualityReport = {
+    t: "QualityReport", 
+    peer : QualityReport,
+    player: {[GGPOPlayerHandle] : QualityReport},
+    time : TimeMS,
+}
+
+export type UDPMsg_Input<I> = {
+    t : "Input",
+    ack_frame : Frame,
+    inputs : PlayerFrameInputMap<I>
+}
+
+
+export type UDPMsg_Contents<I> = 
+    UDPPeerMsg_Ping
+    | UDPPeerMsg_Pong
+    | UDPPeerMsg_InputAck 
+    | UDPMsg_QualityReport 
+    | UDPMsg_Input<I> 
+    | UDPMsg_QualityReport
+
+export type UDPMsg<I> = {
+    m : UDPMsg_Contents<I>,
+    seq : number,
+}
+
+function UDPMsg_Size<I>(UDPMsg : UDPMsg<I>) : number
+    return 0
+end
+
 
 -- DONE UNTESTED
 -- manages synchronizing with a single peer
@@ -599,6 +677,8 @@ export type UDPProto<I> = {
     event_queue : Queue<GGPOEvent<I>>,
 
     playerData : {[GGPOPlayerHandle] : UDPProto_Player<I>},
+
+    timesync : TimeSync,
 
     -- shutdown/keepalive timers
     --shutdown_timeout : number,
@@ -658,12 +738,22 @@ local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
 
         playerData = playerData,
 
+        timesync = TimeSync_new(),
+
     }
     return r
 end
 
 function UDPProto_SendPeerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
-    --_timesync.advance_frame(input, _local_frame_advantage, _remote_frame_advantage);
+
+    local remoteFrameAdvantages = {}
+    for player, data in pairs(udpproto.playerData) do
+        -- convert frame advantages to be relative to us, they were reported relative to peer
+        remoteFrameAdvantages[player] = data.frame_advantage - udpproto.remote_frame_advantage
+    end
+    remoteFrameAdvantages[udpproto.player] = udpproto.remote_frame_advantage
+    TimeSync_advance_frame(udpproto.timesync, udpproto.local_frame_advantage, remoteFrameAdvantages)
+
     --_pending_output.push(input);
     udpproto.playerData[udpproto.player].pending_output[input.frame] = input
     UDPProto_SendPendingOutput(udpproto);
@@ -671,15 +761,15 @@ end
 
 
 function UDPProto_SendPendingOutput<I>(udpproto : UDPProto<I>)
-    local msg : { [GGPOPlayerHandle] : UDPPlayerMsg_Input<I> } = {}
+
+    local inputs = {} :: PlayerFrameInputMap<I>
 
     for player, data in pairs(udpproto.playerData) do
-        msg[player] = data.pending_output
+        inputs[player] = data.pending_output
     end
-   
-   --msg->u.input.ack_frame = _last_received_input.frame;
-   UDPProto_SendMsg(udpproto, msg)
+   UDPProto_SendMsg(udpproto, { t = "Input", ack_frame = udpproto.lastReceivedFrame, inputs = inputs })
 end
+
 
 function UDPProto_SendInputAck<I>(udpproto : UDPProto<I>)
     -- ack the minimum of all the last received inputs for now
@@ -691,8 +781,15 @@ function UDPProto_SendInputAck<I>(udpproto : UDPProto<I>)
             minFrame = data.last_received_input.frame
         end
     end
-    local msg = { frame = minFrame }
-    UDPProto_SendMsg(udpproto, msg)
+    UDPProto_SendMsg(udpproto, { t = "InputAck", frame = minFrame })
+end
+
+function UDPProto_SendQualityReport<I>(udpproto: UDPProto<I>)
+    local playerFrameAdvantages = {}
+    for player, data in pairs(udpproto.playerData) do
+        playerFrameAdvantages[player] = {frame_advantage = data.frame_advantage}
+    end
+    UDPProto_SendMsg(udpproto, { t = "QualityReport", peer = { frame_advantage = udpproto.local_frame_advantage }, player = playerFrameAdvantages, time = now() })
 end
 
 function UDPProto_GetEvent<I>(udpproto : UDPProto<I>) : GGPOEvent<I>?
@@ -705,14 +802,18 @@ function UDPProto_OnLoopPoll<I>(udpproto : UDPProto<I>)
     local now = now()
     local next_interval = 0
 
+    -- TODO add some timer stuff here and finish
+
     -- sync requests (not needed)
 
     -- send pending output
+    --UDPProto_SendPendingOutput(udpproto)
 
     -- send qulaity report
-
+    --UDPProto_SendQualityReport(udpproto)
+    
     -- update nteworkstats
-    --udpproto.UpdateNetworkStats()
+    --UDPProto_UpdateNetworkStats(udpproto)
 
     -- send keep alive (not needed)
 
@@ -874,6 +975,8 @@ function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : GGPONetworkStats
 end
     
 function UDPProto_SetLocalFrameNumber(udpproto : UDPProto<I>, localFrame : number)
+    -- TODO I think this computation is incorrect, I think it should actually be
+    --local remoteFrame = udpproto.lastReceivedFrame + (udpproto.round_trip_time / 2 + msSinceLastReceivedFrame) / udpproto.msPerFrame 
     local remoteFrame = udpproto.lastReceivedFrame + udpproto.round_trip_time / udpproto.msPerFrame / 2
     udpproto.local_frame_advantage = remoteFrame - localFrame
 end
