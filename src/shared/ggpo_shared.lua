@@ -174,7 +174,7 @@ export type PlayerProxyInfo<I> = {
 
 
 
-export type GGPONetworkStats = {
+export type UDPNetworkStats = {
     max_send_queue_len : number,
     ping : number,
     kbps_sent : number,
@@ -1039,7 +1039,7 @@ function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>)
     --_last_recv_time = Platform::GetCurrentTimeMS();
 end
 
-function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : GGPONetworkStats
+function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : UDPNetworkStats
 
     local maxQueueLength = 0
     for player, data in pairs(udpproto.playerData) do
@@ -1094,7 +1094,7 @@ export type GGPO_Peer<T,I,J> = {
 }
 
 -- ggpo_get_network_stats
-function GGPO_Peer.GetStats() : GGPONetworkStats 
+function GGPO_Peer.GetStats() : UDPNetworkStats 
     return nil
 end
 
