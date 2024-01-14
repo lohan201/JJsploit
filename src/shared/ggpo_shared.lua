@@ -18,6 +18,7 @@ end
 -- CONSTANTS
 local serverHandle = 99999999999
 local frameInit = 0
+local frameNegOne = -1
 local frameNull = -999999999999
 local frameMax = 9999999999999
 local frameMin = frameNull+1 -- just so we can distinguish between null and min
@@ -245,7 +246,7 @@ function InputQueue_GetInput<I>(inputQueue : InputQueue<I>, frame : Frame) : Gam
     error.  Doing so means that we're just going further down the wrong
     path.  ASSERT this to verify that it's true.
     ]]
-    assert(inputQueue.first_incorrect_frame == GameInput::NullFrame);
+    assert(inputQueue.first_incorrect_frame == frameNull);
 
     -- TODO prob don't need this
     inputQueue.last_frame_requested = frame;
@@ -317,7 +318,7 @@ end
 export type Sync<T,I> = {
     callbacks : GGPOCallbacks<T,I>,
     savedstate : { [Frame] : { state : T, checksum : string } },
-    rollingback : bool,
+    rollingback : boolean,
     last_confirmed_frame : number,
     framecount : number,
     max_prediction_frames : number,
@@ -507,7 +508,7 @@ function TimeSync_advance_frame(timesync : TimeSync, advantage : number, radvant
 end
 
 function TimeSync_recommend_frame_wait_duration(timesync : TimeSync) : number
-    if #timesync.remoteRollingFrameAdvantge == 0 then
+    if #timesync.remoteRollingFrameAdvantage == 0 then
         return 0
     end
 
@@ -608,6 +609,7 @@ export type UDPMsg_QualityReport = {
 export type UDPMsg_Input<I> = {
     t : "Input",
     ack_frame : Frame,
+    peerFrame : Frame, -- this is the frame the peer is on
     inputs : PlayerFrameInputMap<I>
 }
 
@@ -653,6 +655,9 @@ export type UDPProto<I> = {
     remote_frame_advantage : number,
     -- (according to self) frame self - frame peer
     local_frame_advantage : number,
+
+    -- what frame we are currently on (this should match the latest frame that was added by SendPeerInput if that was called)
+    lastAddedLocalFrame : number,
 
     -- stats
     packets_sent : number,
@@ -717,6 +722,8 @@ local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
         remote_frame_advantage = 0,
         local_frame_advantage = 0,
 
+        lastAddedLocalFrame = frameNegOne,
+
         packets_sent = 0,
         bytes_sent = 0,
         kbps_sent = 0,
@@ -752,6 +759,11 @@ function UDPProto_SendPeerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
     remoteFrameAdvantages[udpproto.player] = udpproto.remote_frame_advantage
     TimeSync_advance_frame(udpproto.timesync, udpproto.local_frame_advantage, remoteFrameAdvantages)
 
+
+    -- TODO I guess you actually don't want this check in server case where inputs might be skipped
+    assert(input.frame == udpproto.lastAddedLocalFrame + 1)
+    udpproto.lastAddedLocalFrame = input.frame
+
     --_pending_output.push(input);
     udpproto.playerData[udpproto.player].pending_output[input.frame] = input
     UDPProto_SendPendingOutput(udpproto);
@@ -759,13 +771,11 @@ end
 
 
 function UDPProto_SendPendingOutput<I>(udpproto : UDPProto<I>)
-
     local inputs = {} :: PlayerFrameInputMap<I>
-
     for player, data in pairs(udpproto.playerData) do
         inputs[player] = data.pending_output
     end
-   UDPProto_SendMsg(udpproto, { t = "Input", ack_frame = udpproto.lastReceivedFrame, inputs = inputs })
+   UDPProto_SendMsg(udpproto, { t = "Input", ack_frame = udpproto.lastReceivedFrame, peerFrame = udpproto.lastAddedLocalFrame, inputs = inputs })
 end
 
 
@@ -867,7 +877,7 @@ end
 
 local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I>) 
 
-    udpproto.lastReceivedFrame = msg.frame
+    udpproto.lastReceivedFrame = msg.peerFrame
 
     local inputs = msg.inputs
     if #inputs == 0 then
