@@ -28,7 +28,7 @@ local frameMin = frameNull+1 -- just so we can distinguish between null and min
 -- TYPES
 export type Frame = number
 export type FrameCount = number
-export type GGPOPlayerHandle = number
+export type PlayerHandle = number
 
 
 
@@ -37,14 +37,14 @@ export type GGPOPlayerHandle = number
 
 -- GGPOEvent types
 export type GGPOEvent_synchronized = {
-    player: GGPOPlayerHandle,
+    player: PlayerHandle,
 }
 export type GGPOEvent_Input<I> = PlayerFrameInputMap<I>
 export type GGPOEvent_interrupted = nil
 export type GGPOEvent_resumed = nil
 -- can we also embed this in the input, perhaps as a serverHandle input
 export type GGPOEvent_disconnected = {
-    player: GGPOPlayerHandle,
+    player: PlayerHandle,
 }
 export type GGPOEvent<I> = GGPOEvent_synchronized | GGPOEvent_Input<I> | GGPOEvent_interrupted | GGPOEvent_resumed | GGPOEvent_disconnected
   
@@ -55,7 +55,7 @@ export type GGPOCallbacks<T,I> = {
     LoadGameState: (T, frame: Frame) -> (),
     AdvanceFrame: () -> (),
     OnEvent: (event: GGPOEvent<I>) -> (),
-    DisconnectPlayer: (GGPOPlayerHandle) -> ()
+    DisconnectPlayer: (PlayerHandle) -> ()
 }
 
 
@@ -116,9 +116,9 @@ function FrameInputMap_firstFrame<I>(msg : FrameInputMap<I>) : Frame
     return firstFrame
 end
 
-export type PlayerInputMap<I> = {[GGPOPlayerHandle] : GameInput<I>}
+export type PlayerInputMap<I> = {[PlayerHandle] : GameInput<I>}
 
-export type PlayerFrameInputMap<I> = {[GGPOPlayerHandle] : FrameInputMap<I>}
+export type PlayerFrameInputMap<I> = {[PlayerHandle] : FrameInputMap<I>}
 
 function PlayerFrameInputMap_firstFrame<I>(msg : PlayerFrameInputMap<I>) : Frame
     if #msg == 0 then
@@ -159,11 +159,11 @@ local uselessUDPEndpoint : UDPEndpoint<any> = {
 }
 
 export type PlayerProxyInfo<I> = {
-    peer: GGPOPlayerHandle,
+    peer: PlayerHandle,
     -- which players are represented by this proxy
     -- in a fully connected P2P case this will be empty
     -- in when connecting to a routing server, this will be all players 
-    proxy: {[number]: GGPOPlayerHandle},
+    proxy: {[number]: PlayerHandle},
     endpoint: UDPEndpoint<I>,
 
     -- TODO figure out best time to transmit this data? maybe a reliable explicit game start packet? or just transmit as frame 0 data? it's weird cuz you can't really forward simulate if you're stuck on frame 0 waiting for data, but maybe just wait is OK, or maybe use first 10 frames to sync and adjust rift etc
@@ -184,7 +184,7 @@ export type GGPONetworkStats = {
 
 -- DONE UNTESTED
 export type InputQueue<I> = {
-    player : GGPOPlayerHandle,
+    player : PlayerHandle,
     first_frame : boolean,
 
     last_user_added_frame : Frame,
@@ -197,7 +197,7 @@ export type InputQueue<I> = {
     inputs : FrameInputMap<I>,
 }
 
-function InputQueue_new<I>(player: GGPOPlayerHandle, frame_delay : number) : InputQueue<I>
+function InputQueue_new<I>(player: PlayerHandle, frame_delay : number) : InputQueue<I>
     local r = {
         player = player,
         first_frame = true,
@@ -353,7 +353,7 @@ export type Sync<T,I> = {
     framecount : FrameCount,
     max_prediction_frames : FrameCount,
     -- TODO rename input_queues
-    input_queue : {[GGPOPlayerHandle] : InputQueue<I>},
+    input_queue : {[PlayerHandle] : InputQueue<I>},
 }
 
 
@@ -390,7 +390,7 @@ function Sync_SetLastConfirmedFrame<T,I>(sync : Sync<T,I>, frame : Frame)
 end
 
 
-function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, input : GameInput<I>) : boolean
+function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input : GameInput<I>) : boolean
 
     -- reject local input if we've gone too far ahead
     local frames_behind = sync.framecount - sync.last_confirmed_frame
@@ -410,7 +410,7 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, in
     return true
 end
 
-function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, input : GameInput<I>)
+function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input : GameInput<I>)
     InputQueue_AddInput(sync.input_queue[player], input)
 end
 
@@ -502,7 +502,7 @@ function Sync_CheckSimulationConsistency<T,I>(sync : Sync<T,I>) : Frame
     return first_incorrect
 end
 
-function Sync_SetFrameDelay<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, delay : FrameCount)
+function Sync_SetFrameDelay<T,I>(sync : Sync<T,I>, player : PlayerHandle, delay : FrameCount)
     sync.input_queue[player].frame_delay = delay
 end
 
@@ -514,7 +514,7 @@ local MAX_FRAME_ADVANTAGE = 9
 -- DONE untested
 export type TimeSync = {
     localRollingFrameAdvantage : number,
-    remoteRollingFrameAdvantage : {[GGPOPlayerHandle] : number},
+    remoteRollingFrameAdvantage : {[PlayerHandle] : number},
 }
 
 function TimeSync_new() : TimeSync
@@ -525,7 +525,7 @@ function TimeSync_new() : TimeSync
     return r
 end
 
-function TimeSync_advance_frame(timesync : TimeSync, advantage : number, radvantage : {[GGPOPlayerHandle] : number})
+function TimeSync_advance_frame(timesync : TimeSync, advantage : number, radvantage : {[PlayerHandle] : number})
     local w = 0.5
     timesync.localRollingFrameAdvantage = timesync.localRollingFrameAdvantage * (1-w) + advantage*w
     for player, adv in pairs(radvantage) do
@@ -587,7 +587,7 @@ end
 
 
 export type UDPProto_Player<I> = {
-    -- alternatively, consider storing these values as a { [GGPOPlayerHandle] : number } table, but this would require sending per player stats rather than just max
+    -- alternatively, consider storing these values as a { [PlayerHandle] : number } table, but this would require sending per player stats rather than just max
     -- (according to peer) frame peer - frame player
     frame_advantage : number,
     pending_output : {[Frame] : GameInput<I>},
@@ -633,7 +633,7 @@ export type QualityReport = {
 export type UDPMsg_QualityReport = {
     t: "QualityReport", 
     peer : QualityReport,
-    player: {[GGPOPlayerHandle] : QualityReport},
+    player: {[PlayerHandle] : QualityReport},
     time : TimeMS,
 }
 
@@ -642,7 +642,7 @@ export type UDPMsg_Input<I> = {
     t : "Input",
     ack_frame : Frame,
     peerFrame : Frame, -- TODO DELETE this should alwasy mattch the frame inside inputs[peer].lastFrame
-    inputs : {[GGPOPlayerHandle] : { inputs : FrameInputMap<I>, lastFrame : Frame } },
+    inputs : {[PlayerHandle] : { inputs : FrameInputMap<I>, lastFrame : Frame } },
 }
 
 
@@ -673,7 +673,7 @@ end
 export type UDPProto<I> = {
 
     -- id
-    player : GGPOPlayerHandle,
+    player : PlayerHandle,
     endpoint : UDPEndpoint<I>,
 
     -- configuration
@@ -712,7 +712,7 @@ export type UDPProto<I> = {
 
     event_queue : Queue<GGPOEvent<I>>,
 
-    playerData : {[GGPOPlayerHandle] : UDPProto_Player<I>},
+    playerData : {[PlayerHandle] : UDPProto_Player<I>},
 
     timesync : TimeSync,
 
@@ -1085,7 +1085,7 @@ export type GGPO_Peer<T,I,J> = {
     gameConfig : GameConfig<I,J>,
     callbacks : GGPOCallbacks<T,I>,
     sync : Sync<T,I>,
-    udps : { [GGPOPlayerHandle] : UDPProto<I> },
+    udps : { [PlayerHandle] : UDPProto<I> },
     --spectators : { [number] : UDPProto<I> },
     next_recommended_sleep : FrameCount,
 
@@ -1103,7 +1103,7 @@ function GGPO_Peer.GetCurrentFrame() : number
 end
 
 -- ggpo_synchronize_input
-function GGPO_Peer.GetCurrentInput<I>() : {[GGPOPlayerHandle] : GameInput<I>} 
+function GGPO_Peer.GetCurrentInput<I>() : {[PlayerHandle] : GameInput<I>} 
     return {}
 end
 
