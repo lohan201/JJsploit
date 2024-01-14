@@ -27,17 +27,60 @@ local frameMin = frameNull+1 -- just so we can distinguish between null and min
 
 -- TYPES
 export type Frame = number
+export type FrameCount = number
 export type GGPOPlayerHandle = number
 
-export type GameConfig = {
-    numPlayers: number,
-    inputDelay: number
+
+
+
+
+
+-- GGPOEvent types
+export type GGPOEvent_synchronized = {
+    player: GGPOPlayerHandle,
+}
+export type GGPOEvent_Input<I> = PlayerFrameInputMap<I>
+export type GGPOEvent_interrupted = nil
+export type GGPOEvent_resumed = nil
+-- can we also embed this in the input, perhaps as a serverHandle input
+export type GGPOEvent_disconnected = {
+    player: GGPOPlayerHandle,
+}
+export type GGPOEvent<I> = GGPOEvent_synchronized | GGPOEvent_Input<I> | GGPOEvent_interrupted | GGPOEvent_resumed | GGPOEvent_disconnected
+  
+
+
+export type GGPOCallbacks<T,I> = {
+    SaveGameState: (frame: Frame) -> T,
+    LoadGameState: (T, frame: Frame) -> (),
+    AdvanceFrame: () -> (),
+    OnEvent: (event: GGPOEvent<I>) -> (),
+    DisconnectPlayer: (GGPOPlayerHandle) -> ()
+}
+
+
+
+export type GameConfig<I,J> = {
+    inputDelay: number,
+
+    inputToString : (I) -> string,
+    infoToString : (J) -> string,
+
+    -- TODO eventually for performance
+    --serializeInput : (I,J) -> string,
+    --serializeInfo : (J) -> string,
 }
 
 export type GameInput<I> = {
-    -- TODO remove this, not needed
+    -- this is not really needed but conveient to have
     -- the destination frame of this input
     frame: Frame,
+
+    -- TODO disconnect info 
+
+    -- TODO
+    -- use this for stuff like per-player startup data, random events, etc
+    --gameInfo : J, 
 
     -- set to whatever type best represents your game input. Keep this object small! Maybe use a buffer! https://devforum.roblox.com/t/introducing-luau-buffer-type-beta/2724894
     -- nil represents no input? (i.e. AddLocalInput was never called)
@@ -105,22 +148,6 @@ end
 
 
 
-
-
--- GGPOEvent types
-export type GGPOEvent_synchronized = {
-    player: GGPOPlayerHandle,
-}
-export type GGPOEvent_Input<I> = PlayerFrameInputMap<I>
-export type GGPOEvent_interrupted = nil
-export type GGPOEvent_resumed = nil
--- can we also embed this in the input, perhaps as a serverHandle input
-export type GGPOEvent_disconnected = {
-    player: GGPOPlayerHandle,
-}
-export type GGPOEvent<I> = GGPOEvent_synchronized | GGPOEvent_Input<I> | GGPOEvent_interrupted | GGPOEvent_resumed | GGPOEvent_disconnected
-  
-
 export type UDPEndpoint<I> = {
     send: (UDPMsg<I>) -> (),
     subscribe: ((UDPMsg<I>)->()) -> (),
@@ -151,30 +178,21 @@ export type GGPONetworkStats = {
     max_send_queue_len : number,
     ping : number,
     kbps_sent : number,
-    local_frames_behind : number,
-    remote_frames_behind : number,
+    local_frames_behind : FrameCount,
+    remote_frames_behind : FrameCount,
 }
-
-export type GGPOCallbacks<T,I> = {
-    SaveGameState: (frame: number) -> T,
-    LoadGameState: (T, frame: number) -> (),
-    AdvanceFrame: () -> (),
-    OnEvent: (event: GGPOEvent<I>) -> (),
-    DisconnectPlayer: (GGPOPlayerHandle) -> ()
-}
-
 
 -- DONE UNTESTED
 export type InputQueue<I> = {
     player : GGPOPlayerHandle,
     first_frame : boolean,
 
-    last_user_added_frame : number,
-    last_added_frame : number,
-    first_incorrect_frame : number,
-    last_frame_requested : number,
+    last_user_added_frame : Frame,
+    last_added_frame : Frame,
+    first_incorrect_frame : Frame,
+    last_frame_requested : Frame,
 
-    frame_delay : number,
+    frame_delay : FrameCount,
 
     inputs : FrameInputMap<I>,
 }
@@ -248,24 +266,24 @@ function InputQueue_GetInput<I>(inputQueue : InputQueue<I>, frame : Frame) : Gam
     ]]
     assert(inputQueue.first_incorrect_frame == frameNull);
 
-    -- TODO prob don't need this
     inputQueue.last_frame_requested = frame;
 
     local fd = inputQueue.inputs[frame]
     if fd then
         return fd
     else
+        Log("requested frame %d not found in queue.", frame);
         local lastFrame = FrameInputMap_lastFrame(inputQueue.inputs)
         -- eventually we may drop this requirement and use a more complex prediction algorithm, in particular, we may have inputs from the future 
         assert(lastFrame < frame, "expected frame used for prediction to be less than requested frame")
         if lastFrame ~= frameNull then
-            Log("basing new prediction frame from previously added frame (player:%d, frame:%d).", player, lastFrame)
+            Log("basing new prediction frame from previously added frame (frame:%d).", lastFrame)
             return inputQueue.inputs[lastFrame]
         else
             Log("basing new prediction frame from nothing, since we have no frames yet.");
             return { frame = frame, input = nil}
         end
-        Log("requested frame %d not found in queue.\n", frame);
+        
     end
 end
 
@@ -295,7 +313,7 @@ function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Fram
     return frame
 end
 
-function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameInput<I>) 
+function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameInput<I>) --, allowOverride : boolean) 
     Log("adding input frame %d to queue.\n", inout_input.frame)
 
     -- verify that inputs are passed in sequentially by the user, regardless of frame delay.
@@ -308,6 +326,18 @@ function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameIn
     inout_input.frame = new_frame
 
     if new_frame ~= frameNull then
+        --[[
+        if allowOverride then
+            if not GameInput_Equals(inputQueue.inputs[new_frame], inout_input) then
+                -- TODO you need fire off some alert to sync that previous correct input got overriden
+                inputQueue.first_incorrect_frame = new_frame
+            end
+        else
+            assert(inputQueue.inputs[new_frame] == nil, "expected frame to not exist in queue")
+        end
+        ]]
+
+        assert(inputQueue.inputs[new_frame] == nil, "expected frame to not exist in queue")
         inputQueue.inputs[new_frame] = inout_input
         inputQueue.last_added_frame = new_frame
     end
@@ -319,15 +349,15 @@ export type Sync<T,I> = {
     callbacks : GGPOCallbacks<T,I>,
     savedstate : { [Frame] : { state : T, checksum : string } },
     rollingback : boolean,
-    last_confirmed_frame : number,
-    framecount : number,
-    max_prediction_frames : number,
+    last_confirmed_frame : Frame,
+    framecount : FrameCount,
+    max_prediction_frames : FrameCount,
     -- TODO rename input_queues
     input_queue : {[GGPOPlayerHandle] : InputQueue<I>},
 }
 
 
-function Sync_new<T,I>(max_prediction_frames: number, callbacks: GGPOCallbacks<T,I>) : Sync<T,I>
+function Sync_new<T,I>(max_prediction_frames: FrameCount, callbacks: GGPOCallbacks<T,I>) : Sync<T,I>
     local r = {
         callbacks = callbacks,
         savedstate = {},
@@ -342,7 +372,7 @@ function Sync_new<T,I>(max_prediction_frames: number, callbacks: GGPOCallbacks<T
     return r
 end
 
-function Sync_SetLastConfirmedFrame<T,I>(sync : Sync<T,I>, frame : number)
+function Sync_SetLastConfirmedFrame<T,I>(sync : Sync<T,I>, frame : Frame)
     sync.last_confirmed_frame = frame
     
     -- we may eventually allow input on frameInit (to transmit per-player data) so use >= here
@@ -472,7 +502,7 @@ function Sync_CheckSimulationConsistency<T,I>(sync : Sync<T,I>) : Frame
     return first_incorrect
 end
 
-function Sync_SetFrameDelay<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, delay : number)
+function Sync_SetFrameDelay<T,I>(sync : Sync<T,I>, player : GGPOPlayerHandle, delay : FrameCount)
     sync.input_queue[player].frame_delay = delay
 end
 
@@ -561,7 +591,7 @@ export type UDPProto_Player<I> = {
     -- (according to peer) frame peer - frame player
     frame_advantage : number,
     pending_output : {[Frame] : GameInput<I>},
-    last_received_input : GameInput<I>,
+    lastFrame : Frame,
 
    --disconnect_event_sent : number,
    --disconnect_timeout : number;
@@ -575,7 +605,7 @@ function UDPProto_Player_new() : UDPProto_Player<any>
     local r = {
         frame_advantage = 0,
         pending_output = {},
-        last_received_input = { frame = frameNull, input = nil },
+        lastFrame = frameNegOne,
         
     }
     return r
@@ -583,7 +613,8 @@ end
 
 
 
-local MAX_SEQ_DISTANCE = 8
+local UDPPROTO_MAX_SEQ_DISTANCE = 8
+local UDPPROTO_NO_QUEUE_NIL_INPUT = false -- TODO enable this 
 
 export type UDPMsg_Type = "Ping" | "Pong" | "InputAck" | "Input" | "QualityReport" 
 
@@ -596,7 +627,7 @@ export type UDPPeerMsg_InputAck = { t: "InputAck", frame : Frame }
 
 
 export type QualityReport = { 
-    frame_advantage : number, 
+    frame_advantage : FrameCount, 
 }
 
 export type UDPMsg_QualityReport = {
@@ -606,11 +637,12 @@ export type UDPMsg_QualityReport = {
     time : TimeMS,
 }
 
+
 export type UDPMsg_Input<I> = {
     t : "Input",
     ack_frame : Frame,
-    peerFrame : Frame, -- this is the frame the peer is on
-    inputs : PlayerFrameInputMap<I>
+    peerFrame : Frame, -- TODO DELETE this should alwasy mattch the frame inside inputs[peer].lastFrame
+    inputs : {[GGPOPlayerHandle] : { inputs : FrameInputMap<I>, lastFrame : Frame } },
 }
 
 
@@ -647,17 +679,18 @@ export type UDPProto<I> = {
     -- configuration
     sendLatency : number,
     msPerFrame: number,
+    isProxy : boolean,
 
     -- rift calculation
     lastReceivedFrame : Frame,
     round_trip_time : TimeMS,
     -- (according to peer) frame peer - frame self
-    remote_frame_advantage : number,
+    remote_frame_advantage : FrameCount,
     -- (according to self) frame self - frame peer
-    local_frame_advantage : number,
+    local_frame_advantage : FrameCount,
 
-    -- what frame we are currently on (this should match the latest frame that was added by SendPeerInput if that was called)
-    lastAddedLocalFrame : number,
+    -- TODO DELETE this should match playerData[player].lastFrame
+    lastAddedLocalFrame : Frame,
 
     -- stats
     packets_sent : number,
@@ -692,8 +725,8 @@ export type UDPProto<I> = {
 local function UDPProto_lastSynchronizedFrame<I>(udpproto : UDPProto<I>) : Frame
     local lastFrame = frameMax
     for player, data in pairs(udpproto.playerData) do
-        if data.last_received_input.frame < lastFrame then
-            lastFrame = data.last_received_input.frame
+        if data.lastFrame < lastFrame then
+            lastFrame = data.lastFrame
         end
     end
     if lastFrame == frameMax then
@@ -704,9 +737,15 @@ end
 
 local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
 
+    
+
+    -- initialize playerData
     local playerData = {}
+    assert(player.proxy[player.peer] == nil, "peer should not be one of its proxies")
     playerData[player.peer] = UDPProto_Player_new()
-    -- TODO if server, maybe add other peers here as well 
+    for _, proxy in pairs(player.proxy) do
+        playerData[proxy] = UDPProto_Player_new()
+    end
 
     local r = {
         -- TODO set
@@ -716,8 +755,9 @@ local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
         -- TODO configure
         sendLatency = 0,
         msPerFrame = 50,
+        isProxy = #player.proxy > 0,
 
-        lastReceivedFrame = frameNull,
+        lastReceivedFrame = frameNegOne,
         round_trip_time = 0,
         remote_frame_advantage = 0,
         local_frame_advantage = 0,
@@ -749,6 +789,7 @@ local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
     return r
 end
 
+-- MUST be called once each frame!!! If there is no input, just call with { frame = frame, input = nil }
 function UDPProto_SendPeerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
 
     local remoteFrameAdvantages = {}
@@ -762,18 +803,27 @@ function UDPProto_SendPeerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
 
     -- TODO I guess you actually don't want this check in server case where inputs might be skipped
     assert(input.frame == udpproto.lastAddedLocalFrame + 1)
-    udpproto.lastAddedLocalFrame = input.frame
 
-    --_pending_output.push(input);
-    udpproto.playerData[udpproto.player].pending_output[input.frame] = input
+
+    udpproto.lastAddedLocalFrame = input.frame
+    udpproto.playerData[udpproto.player].lastFrame = input.frame
+
+    if UDPPROTO_NO_QUEUE_NIL_INPUT and input.input == nil then
+        Log("UDPProto_SendPeerInput: input is nil, no need to queue it")
+    else
+        udpproto.playerData[udpproto.player].pending_output[input.frame] = input
+    end
     UDPProto_SendPendingOutput(udpproto);
 end
 
 
 function UDPProto_SendPendingOutput<I>(udpproto : UDPProto<I>)
-    local inputs = {} :: PlayerFrameInputMap<I>
+
+    -- TODO maybe set lastAddedLocalFrame here if server with null inputs
+
+    local inputs = {}
     for player, data in pairs(udpproto.playerData) do
-        inputs[player] = data.pending_output
+        inputs[player] = { inputs = data.pending_output, lastFrame = data.lastFrame }
     end
    UDPProto_SendMsg(udpproto, { t = "Input", ack_frame = udpproto.lastReceivedFrame, peerFrame = udpproto.lastAddedLocalFrame, inputs = inputs })
 end
@@ -877,27 +927,54 @@ end
 
 local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I>) 
 
-    udpproto.lastReceivedFrame = msg.peerFrame
-
     local inputs = msg.inputs
     if #inputs == 0 then
         Log("UDPProto_OnInput: Received empty msg")
         return
     end
 
-    local lastFrame
-    for player, data in pairs(inputs) do
-        
-        -- for now, assume frames are contiguous
-        lastFrame = FrameInputMap_lastFrame(data)
-
-        
-        if lastFrame ~= frameNull then
-            udpproto.playerData[player].last_received_input = data[lastFrame]
+    -- add the input to our pending output IF we are server
+    if udpproto.isProxy then
+        for player, data in pairs(inputs) do
+            for frame, input in pairs(data.inputs) do
+                -- TODO check that there is no conflict between input and what's already in pending output
+                if UDPPROTO_NO_QUEUE_NIL_INPUT and input.input == nil then
+                    Log("UDPProto_OnInput: remote input for player %d frame %d is nil, no need to queue it", player, frame)
+                else
+                    udpproto.playerData[player].pending_output[frame] = input
+                end
+            end
+            udpproto.playerData[player].lastFrame = data.lastFrame
         end
     end
 
-    UDPProto_QueueEvent(udpproto, inputs)
+    
+
+
+    -- now fill in empty inputs from udpproto.playerData[player].lastFrame+1 to msg.inputs[player].lastFrame because they get omitted for performance if they were nil
+    assert(inputs[udpproto.player] ~= nil, "expected to receive inputs for peer")
+    for player, data in pairs(inputs) do
+        for i = udpproto.playerData[player].lastFrame+1, data.lastFrame, 1 do
+            if inputs[player][i] == nil then
+                Log("did not receive inputs for player %d frame %d assume their inputs are nil", player, i)
+                inputs[player][i] = { frame = i, input = nil }
+            end
+        end
+    end
+
+    -- update the last frame    
+    udpproto.lastReceivedFrame = msg.peerFrame
+    for player, data in pairs(inputs) do
+        udpproto.playerData[player].lastFrame = data.lastFrame
+    end
+
+    -- TODO I tried to just delete data.lastFrame but that wasn't enough to make the luau typechecker happy :(
+    local r = {}
+    for player, data in pairs(inputs) do
+        r[player] = data.inputs
+    end
+
+    UDPProto_QueueEvent(udpproto, r)
 end
 
 local function UDPProto_OnInputAck<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_InputAck) 
@@ -936,7 +1013,7 @@ function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>)
 
     --filter out out-of-order packets
     local skipped = msg.seq - udpproto.next_recv_seq
-    if skipped > MAX_SEQ_DISTANCE then
+    if skipped > UDPPROTO_MAX_SEQ_DISTANCE then
         Log("Dropping out of order packet (seq: %d, last seq: %d)", msg.seq, udpproto.next_recv_seq)
         return
     end
@@ -1002,9 +1079,19 @@ end
 
 
 
---[[
 -- GGPO_Peer
-local GGPO_Peer = {}
+export type GGPO_Peer<T,I,J> = {
+    
+    gameConfig : GameConfig<I,J>,
+    callbacks : GGPOCallbacks<T,I>,
+    sync : Sync<T,I>,
+    udps : { [GGPOPlayerHandle] : UDPProto<I> },
+    --spectators : { [number] : UDPProto<I> },
+    next_recommended_sleep : FrameCount,
+
+
+
+}
 
 -- ggpo_get_network_stats
 function GGPO_Peer.GetStats() : GGPONetworkStats 
@@ -1062,5 +1149,3 @@ end
 --local GGPO_Client = {}
 
 
-
-]]

@@ -1,0 +1,29 @@
+
+
+## WIP TODO IGNORE
+-udpproto to support spectator mode
+  -reject/assert/log on input
+  -player number is spectator
+V2-allow self to be flagged as authoritative inside sync/inputqueue
+  -otherwise, allow peer to override self inputs
+  -if peer does not send self inputs (but send other stuff for that frame) assume that local inputs are correct/authorized
+    -NO this won't work, because peer sends player inputs from many different frames 
+    -instead, just have server send back player inputs to confirm them OR send a separate confirmation packet
+V2-figure out how to handle initial player data
+  -prob best just to recommend X frames for syncing initial state and rift
+  -send player data as server input on frame 0
+DONE-allow OPTIONAL input sending in udproto
+  -you still need to set lastAddedLocalFrame because SendPeerInput won't get called in the not sending case
+    -INSTEAD just require calling SendPeerInput with nil input
+    -AND you can optimize by not sending the input if its nil
+-add disconnect tracking
+-figure out what to do when player is disconnect
+  -refer to orig ggpo implementation
+-allow dynamic player entry/exit 
+  -probbaly have a server input for such events
+    -startgame + player data (frame 0 input)
+    -maybe have an all players synced msg (when all players have reasonable rift) (probbaly not needed)
+    -player disconnected (input for a player after they disconnected is invalid, should never happen)
+    -player reconnected
+    -player joined
+    -game end (probbaly not needed)
