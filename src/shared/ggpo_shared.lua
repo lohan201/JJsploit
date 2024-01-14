@@ -15,20 +15,21 @@ end
 
 
 
+-- TYPES
+export type Frame = number
+export type FrameCount = number
+export type PlayerHandle = number
+
+
 -- CONSTANTS
-local serverHandle = 99999999999
+local carsHandle = 99999999999
+local spectatorHandle = -1
 local frameInit = 0
 local frameNegOne = -1
 local frameNull = -999999999999
 local frameMax = 9999999999999
 local frameMin = frameNull+1 -- just so we can distinguish between null and min
 
-
-
--- TYPES
-export type Frame = number
-export type FrameCount = number
-export type PlayerHandle = number
 
 
 
@@ -42,6 +43,7 @@ export type GGPOEvent_synchronized = {
 export type GGPOEvent_Input<I> = PlayerFrameInputMap<I>
 export type GGPOEvent_interrupted = nil
 export type GGPOEvent_resumed = nil
+export type GGPOEvent_timesync = { framesAhead : FrameCount } -- sleep for this number of frame to adjust for frame advantage
 -- can we also embed this in the input, perhaps as a serverHandle input
 export type GGPOEvent_disconnected = {
     player: PlayerHandle,
@@ -54,21 +56,44 @@ export type GGPOCallbacks<T,I> = {
     SaveGameState: (frame: Frame) -> T,
     LoadGameState: (T, frame: Frame) -> (),
     AdvanceFrame: () -> (),
-    OnEvent: (event: GGPOEvent<I>) -> (),
-    DisconnectPlayer: (PlayerHandle) -> ()
+    OnPeerEvent: (event: GGPOEvent<I>, player: PlayerHandle) -> (),
+    OnSpectatorEvent: (event: GGPOEvent<I>, spectator: number) -> (),
+    --DisconnectPlayer: (PlayerHandle) -> ()
 }
 
 
 
 export type GameConfig<I,J> = {
-    inputDelay: number,
+    inputDelay: FrameCount,
+    maxPredictionFrames: FrameCount,
 
-    inputToString : (I) -> string,
-    infoToString : (J) -> string,
+    -- if nil, then default serialization is used which may be inefficient
+    inputToString : ((I) -> string)?,
+    infoToString : ((J) -> string)?,
+
+    -- TODO
+    --prediction : (frame : Frame, pastInputs : FrameInputMap<I>) -> I?,
 
     -- TODO eventually for performance
     --serializeInput : (I,J) -> string,
     --serializeInfo : (J) -> string,
+}
+
+function prediction_use_last_input<I>(frame : Frame, pastInputs : FrameInputMap<I>) : I?
+    local lastFrame = FrameInputMap_lastFrame(pastInputs)
+    if lastFrame == frameNull then
+        return nil
+    end
+    assert(lastFrame < frame, "expected last frame to be less than prediction frame")
+    return pastInputs[lastFrame].input
+end
+
+local defaultGameConfig = {
+    inputDelay = 0,
+    maxPredictionFrames = 8,
+    inputToString = nil,
+    infoToString = nil,
+    --prediction = prediction_use_last_input,
 }
 
 export type GameInput<I> = {
@@ -80,7 +105,9 @@ export type GameInput<I> = {
 
     -- TODO
     -- use this for stuff like per-player startup data, random events, etc
-    --gameInfo : J, 
+    -- this is distinct from input because it's prediction is always nil
+    -- TODO when you add this, don't forget to update the prediction code in InputQueue
+    --gameInfo : J?, 
 
     -- set to whatever type best represents your game input. Keep this object small! Maybe use a buffer! https://devforum.roblox.com/t/introducing-luau-buffer-type-beta/2724894
     -- nil represents no input? (i.e. AddLocalInput was never called)
@@ -157,20 +184,6 @@ local uselessUDPEndpoint : UDPEndpoint<any> = {
     send = function(msg) end,
     subscribe = function(cb) end
 }
-
-export type PlayerProxyInfo<I> = {
-    peer: PlayerHandle,
-    -- which players are represented by this proxy
-    -- in a fully connected P2P case this will be empty
-    -- in when connecting to a routing server, this will be all players 
-    proxy: {[number]: PlayerHandle},
-    endpoint: UDPEndpoint<I>,
-
-    -- TODO figure out best time to transmit this data? maybe a reliable explicit game start packet? or just transmit as frame 0 data? it's weird cuz you can't really forward simulate if you're stuck on frame 0 waiting for data, but maybe just wait is OK, or maybe use first 10 frames to sync and adjust rift etc
-    -- use this to pass in deterministic per-player capabilities
-    --data: G,
-}
-
 
 
 
@@ -350,7 +363,7 @@ export type Sync<T,I> = {
     savedstate : { [Frame] : { state : T, checksum : string } },
     rollingback : boolean,
     last_confirmed_frame : Frame,
-    framecount : FrameCount,
+    framecount : Frame, -- TODO rename to currentFrame
     max_prediction_frames : FrameCount,
     -- TODO rename input_queues
     input_queue : {[PlayerHandle] : InputQueue<I>},
@@ -364,7 +377,7 @@ function Sync_new<T,I>(max_prediction_frames: FrameCount, callbacks: GGPOCallbac
         max_prediction_frames = max_prediction_frames,
         rollingback = false,
         last_confirmed_frame = frameNull,
-        framecount = 0,
+        framecount = frameInit,
 
         -- TODO preallocate players
         input_queue = {},
@@ -390,7 +403,7 @@ function Sync_SetLastConfirmedFrame<T,I>(sync : Sync<T,I>, frame : Frame)
 end
 
 
-function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input : GameInput<I>) : boolean
+function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_input : GameInput<I>) : boolean
 
     -- reject local input if we've gone too far ahead
     local frames_behind = sync.framecount - sync.last_confirmed_frame
@@ -404,14 +417,14 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input 
     end
 
     Log("Adding undelayed local frame %d for player %d.\n", sync.framecount, player)
-    assert(input.frame == sync.framecount, "expected input frame to match current frame")
-    input.frame = sync.framecount
-    InputQueue_AddInput(sync.input_queue[player], input)
+    assert(inout_input.frame == sync.framecount, "expected input frame to match current frame")
+    inout_input.frame = sync.framecount
+    InputQueue_AddInput(sync.input_queue[player], inout_input)
     return true
 end
 
-function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input : GameInput<I>)
-    InputQueue_AddInput(sync.input_queue[player], input)
+function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_input : GameInput<I>)
+    InputQueue_AddInput(sync.input_queue[player], inout_input)
 end
 
 
@@ -735,17 +748,20 @@ local function UDPProto_lastSynchronizedFrame<I>(udpproto : UDPProto<I>) : Frame
     return lastFrame
 end
 
-local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
+local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoint : UDPEndpoint<I>) : UDPProto<I>
 
-    
+    if player == carsHandle then
+        assert(isProxy, "cars must be a proxy")
+    end
 
     -- initialize playerData
     local playerData = {}
-    assert(player.proxy[player.peer] == nil, "peer should not be one of its proxies")
-    playerData[player.peer] = UDPProto_Player_new()
-    for _, proxy in pairs(player.proxy) do
-        playerData[proxy] = UDPProto_Player_new()
-    end
+    playerData[player] = UDPProto_Player_new()
+
+    -- DELETE
+    --for _, proxy in pairs(player.proxy) do
+    --    playerData[proxy] = UDPProto_Player_new()
+    --end
 
     local r = {
         -- TODO set
@@ -755,7 +771,7 @@ local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
         -- TODO configure
         sendLatency = 0,
         msPerFrame = 50,
-        isProxy = #player.proxy > 0,
+        isProxy = isProxy,
 
         lastReceivedFrame = frameNegOne,
         round_trip_time = 0,
@@ -786,6 +802,19 @@ local function UDPProto_new<I>(player : PlayerProxyInfo<I>) : UDPProto<I>
         timesync = TimeSync_new(),
 
     }
+
+    endpoint.subscribe(function(msg : UDPMsg<I>) UDPProto_OnMsg(r, msg) end)
+
+    return r
+end
+
+function UDPProto_LazyInitPlayer<I>(udpproto : UDPProto<I>, player : PlayerHandle) : UDPProto_Player<I>
+    local r = udpproto.playerData[player]
+    if r == nil then
+        -- TODO may need to init with different values if player was added mid game
+        r = UDPProto_Player_new()
+        udpproto.playerData[player] = r
+    end
     return r
 end
 
@@ -933,6 +962,11 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
         return
     end
 
+    for player, _ in pairs(inputs) do
+        UDPProto_LazyInitPlayer(udpproto, player)
+    end
+    
+
     -- add the input to our pending output IF we are server
     if udpproto.isProxy then
         for player, data in pairs(inputs) do
@@ -947,9 +981,6 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
             udpproto.playerData[player].lastFrame = data.lastFrame
         end
     end
-
-    
-
 
     -- now fill in empty inputs from udpproto.playerData[player].lastFrame+1 to msg.inputs[player].lastFrame because they get omitted for performance if they were nil
     assert(inputs[udpproto.player] ~= nil, "expected to receive inputs for peer")
@@ -1002,7 +1033,8 @@ end
 local function UDPProto_OnQualityReport<I>(udpproto : UDPProto<I>, msg : UDPMsg_QualityReport) 
     udpproto.remote_frame_advantage = msg.peer.frame_advantage
     for player, data in pairs(msg.player) do
-        udpproto.playerData[player].frame_advantage = data.frame_advantage
+        local pd = UDPProto_LazyInitPlayer(udpproto, player)
+        pd.frame_advantage = data.frame_advantage
     end
 
     UDPProto_SendMsg(udpproto, { t = "Pong", time = msg.time })
@@ -1086,67 +1118,119 @@ export type GGPO_Peer<T,I,J> = {
     callbacks : GGPOCallbacks<T,I>,
     sync : Sync<T,I>,
     udps : { [PlayerHandle] : UDPProto<I> },
-    --spectators : { [number] : UDPProto<I> },
+    spectators : { [number] : UDPProto<I> },
+    player : PlayerHandle,
     next_recommended_sleep : FrameCount,
-
-
-
 }
 
--- ggpo_get_network_stats
-function GGPO_Peer_GetStats<T,I,J>(peer : GGPO_Peer<T,I,J>) : UDPNetworkStats 
-    return {}
+function GGPO_Peer_new<T,I,J>(gameConfig : GameConfig<I,J>, callbacks : GGPOCallbacks<T,I>, player : PlayerHandle) : GGPO_Peer<T,I,J>
+    local r = {
+        gameConfig = gameConfig,
+        callbacks = callbacks,
+        sync = Sync_new(gameConfig.maxPredictionFrames, callbacks),
+        udps = {},
+        spectators = {},
+        player = player,
+        next_recommended_sleep = 0,
+        
+    }
+    return r
 end
 
---
-function GGPO_Peer_GetCurrentFrame<T,I,J>(peer : GGPO_Peer<T,I,J>) : Frame
-    return 0
+
+
+local function GGPO_Peer_AddSpectator<T,I,J>(peer : GGPO_Peer<T,I,J>, endpoint: UDPEndpoint<I>)
+    error("not implemented")
+    --peer.spectators[#peer.spectators] = UDPProto_new({ player = spectatorHandle, proxy = {}, endpoint = endpoint })
 end
 
--- ggpo_synchronize_input
-function GGPO_Peer_GetCurrentInput<T,I,J>(peer : GGPO_Peer<T,I,J>) : PlayerInputMap<I>
-    return {}
+
+-- NOTE this is only for setting up our peers, not the game!
+-- in particular, is a CARS setting this is called for all peers on the server
+-- and called for just the server on each peer
+function GGPO_Peer_AddPeer<T,I,J>(peer : GGPO_Peer<T,I,J>, player : PlayerHandle, endpoint : UDPEndpoint<I>)
+
+    if player == spectatorHandle then
+        GGPO_Peer_AddSpectator(peer, endpoint)
+        return
+    end
+
+    assert(peer.udps[player] == nil, "expected peer to not already exist")
+    peer.udps[player] = UDPProto_new(player, player == carsHandle, endpoint)
+end
+
+function GGPO_Peer_GetStats<T,I,J>(peer : GGPO_Peer<T,I,J>) : {[PlayerHandle] : UDPNetworkStats}
+    local r = {}
+    for player, udp in pairs(peer.udps) do
+        r[player] = UDPProto_GetNetworkStats(udp)
+    end
+    return r
+end
+
+function GGPO_Peer_SetFrameDelay<T,I,J>(peer : GGPO_Peer<T,I,J>, delay : FrameCount) 
+    Sync_SetFrameDelay(peer.sync, peer.player, delay)
+end
+
+function GGPO_Peer_SynchronizeInput<T,I,J>(peer : GGPO_Peer<T,I,J>, frame : Frame) : PlayerInputMap<I>
+    assert(frame == peer.sync.framecount, "expected frame to match current frame")
+    return Sync_SynchronizeInputs(peer.sync)
 end
 
 -- ggpo_advance_frame
 function GGPO_Peer_AdvanceFrame<T,I,J>(peer : GGPO_Peer<T,I,J>)
+    Sync_IncrementFrame(peer.sync)
+
+    -- TODO maybe poll here?
 end
 
 
--- ggpo_add_local_input
-function GGPO_Peer_AddLocalInput<T,I,J>(peer : GGPO_Peer<T,I,J>, input: GameInput<I>)
+-- returns false if input was dropped for whatever reason
+-- TODO return an error code instead
+function GGPO_Peer_AddLocalInput<T,I,J>(peer : GGPO_Peer<T,I,J>, inout_input: GameInput<I>) : boolean
+    assert(not peer.sync.rollingback, "do not add inputs during rollback!")
+    
+    -- TODO assert no inputs send during synchronization
+
+    if not Sync_AddLocalInput(peer.sync, peer.player, inout_input) then
+        return false
+    end
+
+    if inout_input.frame == frameNull then
+        Log("Frame dropped due to input delay shenanigans")
+        return false
+    else
+        for _, udp in pairs(peer.udps) do
+            UDPProto_SendPeerInput(udp, inout_input)
+        end
+    end
+
+    return true
+
 end
 
--- ggpo_start_session  (you still need to call addPlayer)
-function GGPO_Peer_StartSession<T,I,J>(peer : GGPO_Peer<T,I,J>, config: GameConfig<I,J>, callbacks: GGPOCallbacks<T,I>)
+function GGPO_Peer_PollUdpProtocolEvents<T,I,J>(peer : GGPO_Peer<T,I,J>)
+    for player, udp in pairs(peer.udps) do
+        local evt = UDPProto_GetEvent(udp)
+        while evt ~= nil do
+            peer.callbacks.OnPeerEvent(evt, player)
+            evt = UDPProto_GetEvent(udp)
+        end
+    end
+    for i, udp in pairs(peer.spectators) do
+        local evt = UDPProto_GetEvent(udp)
+        while evt ~= nil do
+            peer.callbacks.OnSpectatorEvent(evt, i)
+            evt = UDPProto_GetEvent(udp)
+        end
+    end
 end
 
-function GGPO_Peer_AddSpectator<T,I,J>(peer : GGPO_Peer<T,I,J>, endpoint: UDPEndpoint<I>)
+-- Called only as the result of a local decision to disconnect
+-- if peers is CARS then this decision is authoritatively sent to all peers
+-- otherwise, there will probably be a desync 
+-- TODO figure out how this was intended to be used in original GGPO in p2p case
+function GGPO_Peer_DisconnectPlayer<T,I,J>(peer : GGPO_Peer<T,I,J>, player : PlayerHandle)
+    -- TODO
+    error("not implemented")
 end
-
-function GGPO_Peer_AddPlayerProxy<T,I,J>(peer : GGPO_Peer<T,I,J>, player: PlayerProxyInfo<I>)
-end
-
-
-
-
-
-
-
---return GGPO_Peer
-
-
--- GGPO_SERVER
---local GGPO_Server = {}
--- inhert GGPO_Peer
---GGPO_Server.mt = {}
---GGPO_Server.mt.__index = function (table, key)
---    return GGPO_Peer[key]
---end
-
-
-
--- GGPO_CLIENT
---local GGPO_Client = {}
-
 
