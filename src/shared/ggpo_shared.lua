@@ -835,8 +835,8 @@ function UDPProto_SendInputAck<I>(udpproto : UDPProto<I>)
     -- or you could ack the exact players/frames too 
     local minFrame = frameNull
     for player, data in pairs(udpproto.playerData) do
-        if data.last_received_input.frame < minFrame then
-            minFrame = data.last_received_input.frame
+        if data.lastFrame < minFrame then
+            minFrame = data.lastFrame
         end
     end
     UDPProto_SendMsg(udpproto, { t = "InputAck", frame = minFrame })
@@ -1094,36 +1094,37 @@ export type GGPO_Peer<T,I,J> = {
 }
 
 -- ggpo_get_network_stats
-function GGPO_Peer.GetStats() : UDPNetworkStats 
-    return nil
+function GGPO_Peer_GetStats<T,I,J>(peer : GGPO_Peer<T,I,J>) : UDPNetworkStats 
+    return {}
 end
 
-function GGPO_Peer.GetCurrentFrame() : number
+--
+function GGPO_Peer_GetCurrentFrame<T,I,J>(peer : GGPO_Peer<T,I,J>) : Frame
     return 0
 end
 
 -- ggpo_synchronize_input
-function GGPO_Peer.GetCurrentInput<I>() : {[PlayerHandle] : GameInput<I>} 
+function GGPO_Peer_GetCurrentInput<T,I,J>(peer : GGPO_Peer<T,I,J>) : PlayerInputMap<I>
     return {}
 end
 
 -- ggpo_advance_frame
-function GGPO_Peer.AdvanceFrame()
+function GGPO_Peer_AdvanceFrame<T,I,J>(peer : GGPO_Peer<T,I,J>)
 end
 
 
 -- ggpo_add_local_input
-function GGPO_Peer.AddLocalInput<I>(input: GameInput<I>)
+function GGPO_Peer_AddLocalInput<T,I,J>(peer : GGPO_Peer<T,I,J>, input: GameInput<I>)
 end
 
 -- ggpo_start_session  (you still need to call addPlayer)
-function GGPO_Peer.StartSession<T>(config: GameConfig, callbacks: GGPOCallbacks<T>)
+function GGPO_Peer_StartSession<T,I,J>(peer : GGPO_Peer<T,I,J>, config: GameConfig<I,J>, callbacks: GGPOCallbacks<T,I>)
 end
 
-function GGPO_Peer.AddSpectator(endpoint: UDPEndpoint)
+function GGPO_Peer_AddSpectator<T,I,J>(peer : GGPO_Peer<T,I,J>, endpoint: UDPEndpoint<I>)
 end
 
-function GGPO_Peer.AddPlayerProxy(player: PlayerProxyInfo)
+function GGPO_Peer_AddPlayerProxy<T,I,J>(peer : GGPO_Peer<T,I,J>, player: PlayerProxyInfo<I>)
 end
 
 
