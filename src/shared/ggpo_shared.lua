@@ -169,6 +169,7 @@ function PlayerFrameInputMap_addInputs<I>(a : PlayerFrameInputMap<I>, b : Player
             --if table.contains(a, player) and table.contains(a[player][frame]) and a[player][frame] ~= a[player][frame] then 
             a[player][frame] = input
         end
+    end
 end
 
 
@@ -1234,3 +1235,65 @@ function GGPO_Peer_DisconnectPlayer<T,I,J>(peer : GGPO_Peer<T,I,J>, player : Pla
     error("not implemented")
 end
 
+
+
+
+
+-- TESTING STUFF
+
+export type MockUDPEndpointStuff<I> = {
+    --configuration
+    delayMin : number,
+    delayMax : number,
+    dropRate : number,
+
+    -- actual data
+    -- key is when to send in epochMs
+    msgQueue : { [number] : UDPMsg<I> },
+    subscribers : { [number] : (UDPMsg<I>) -> () },
+}
+
+function MockUDPEndointStuff_new<I>() : MockUDPEndpointStuff<I>
+    local r = {
+        delayMin = 100,
+        delayMax = 200,
+        dropRate = 0,
+        msgQueue = {},
+        subscribers = {},
+    }
+    return r
+end
+
+
+export type MockUDPEndpointManager<I> = {
+    endpoints : {[UDPEndpoint<I>] : MockUDPEndpointStuff<I> },
+}
+
+function MockUDPEndpointManager_Update<I>(manager : MockUDPEndpointManager<I>)
+    local now = now()
+    for endpoint, stuff in pairs(manager.endpoints) do
+        for t, msg in stuff.msgQueue do
+            if t <= now then
+                endpoint.send(msg)
+                stuff.msgQueue[t] = nil
+            end
+        end
+    end
+end
+
+function MockUDPEndpointManager_AddUDPEndpoint<I>(manager : MockUDPEndpointManager<I>) : UDPEndpoint<I>
+    local endpointStuff = MockUDPEndointStuff_new()
+    local r = {
+        send = function(msg)
+            local delay = endpointStuff.delayMin + math.random() * (endpointStuff.delayMax - endpointStuff.delayMin)
+            local epochMs = now() + math.floor(delay)
+            endpointStuff.msgQueue[epochMs] = msg
+            table.sort(endpointStuff)
+        end,
+        subscribe = function(f)
+            local id = #endpointStuff.subscribers + 1
+            endpointStuff.subscribers[id] = f
+        end,
+    }
+    return r
+end
