@@ -1,7 +1,8 @@
 
 
 ## WIP TODO IGNORE
--add polling timer to udpproto
+-Sync_LazyAllocPlayer
+-add polling timer to udpproto include calling GGPO_Peer_PollUdpProtocolEvents
 -write tests lol
 -cleanup routine for savedstate in sync
 

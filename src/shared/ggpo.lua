@@ -114,6 +114,16 @@ export type GameInput<I> = {
     -- nil represents no input? (i.e. AddLocalInput was never called)
     input: I?
 }
+
+function GameInput_new<I>(frame : Frame, input : I?) : GameInput<I>
+    assert(frame ~= nil, "expected frame to not be nil")
+    local r = {
+        frame = frame,
+        input = input,
+    }
+    return r
+end
+
 export type FrameInputMap<I> = {[Frame] : GameInput<I>}
 
 function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
@@ -407,6 +417,7 @@ end
 
 
 function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_input : GameInput<I>) : boolean
+    assert(inout_input ~= nil, "expected input to not be nil")
 
     -- reject local input if we've gone too far ahead
     local frames_behind = sync.framecount - sync.last_confirmed_frame
@@ -420,7 +431,7 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_
     end
 
     Log("Adding undelayed local frame %d for player %d.\n", sync.framecount, player)
-    assert(inout_input.frame == sync.framecount, "expected input frame to match current frame")
+    assert(inout_input.frame == sync.framecount, string.format("expected input frame %d to match current frame %d", inout_input.frame, sync.framecount))
     inout_input.frame = sync.framecount
     InputQueue_AddInput(sync.input_queue[player], inout_input)
     return true
@@ -494,7 +505,7 @@ function Sync_SaveCurrentFrame<T,I>(sync : Sync<T,I>)
     local state = sync.callbacks.SaveGameState(sync.framecount)
     local checksum = "TODO"
     sync.savedstate[sync.framecount] = { state = state, checksum = checksum }
-    Log("Saved frame info %d (checksum: %08x).\n", sync.framecount, checksum)
+    Log("Saved frame info %d (checksum: %s).\n", sync.framecount, checksum)
 end
 
 function Sync_GetSavedFrame<T,I>(sync : Sync<T,I>, frame : Frame) 
@@ -1240,3 +1251,23 @@ end
 
 
 
+return {
+    frameInit = frameInit,
+    frameNull = frameNull,
+    frameMax = frameMax,
+    frameNegOne = frameNegOne,
+    defaultGameConfig = defaultGameConfig,
+
+    GameInput_new = GameInput_new,
+    
+    GGPO_Peer_new = GGPO_Peer_new,
+    GGPO_Peer_AddPeer = GGPO_Peer_AddPeer,
+    GGPO_Peer_AddSpectator = GGPO_Peer_AddSpectator,
+    GGPO_Peer_GetStats = GGPO_Peer_GetStats,
+    GGPO_Peer_SetFrameDelay = GGPO_Peer_SetFrameDelay,
+    GGPO_Peer_SynchronizeInput = GGPO_Peer_SynchronizeInput,
+    GGPO_Peer_AdvanceFrame = GGPO_Peer_AdvanceFrame,
+    GGPO_Peer_AddLocalInput = GGPO_Peer_AddLocalInput,
+    GGPO_Peer_PollUdpProtocolEvents = GGPO_Peer_PollUdpProtocolEvents,
+    GGPO_Peer_DisconnectPlayer = GGPO_Peer_DisconnectPlayer,
+}

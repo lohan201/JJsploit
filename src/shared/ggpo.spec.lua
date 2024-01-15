@@ -1,4 +1,4 @@
-require(script.Parent.ggpo)
+local GGPO = require(script.Parent.ggpo)
 
 -- TESTING STUFF
 
@@ -88,7 +88,7 @@ export type MockGameState = {
 
 function MockGameState_new() : MockGameState
     local r = {
-        frame = frameInit,
+        frame = GGPO.frameInit,
         state = "",
     }
     return r
@@ -104,7 +104,7 @@ export type MockGame = {
 
 function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
 
-    local config = defaultGameConfig
+    local config = GGPO.defaultGameConfig
     local manager = MockUDPEndpointManager_new()
     local players = {}
     local playersIndices = {}
@@ -120,15 +120,15 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
         local stateref = MockGameState_new()
         local callbacks = {
             SaveGameState = function(frame) 
-                assert(frame == playerState.frame)
-                return playerState.state
+                assert(frame == stateref.frame, string.format("expected frame %d, got %d", frame, stateref.frame))
+                return stateref.state
             end,
             LoadGameState = function(state, frame) 
-                playerState.state = state
-                playerState.frame = frame
+                stateref.state = state
+                stateref.frame = frame
             end,
             AdvanceFrame = function()
-                local pinputs = GGPO_Peer_SynchronizeInput<T,I,J>(ggporef, stateref.frame)
+                local pinputs = GGPO.GGPO_Peer_SynchronizeInput(ggporef, stateref.frame)
                 table.sort(pinputs)
                 stateref.state = stateref.state + tostring(stateref.frame) + ":"
                 for p, input in pairs(pinputs) do
@@ -140,10 +140,11 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
             OnPeerEvent = function(event, player) end,
             OnSpectatorEvent = function(event, spectator) end,
         }  
-        ggporef = GGPO_Peer_new(config, callbacks, i)
+        ggporef = GGPO.GGPO_Peer_new(config, callbacks, i)
         players[i] = {
             ggpo = ggporef,
             state = stateref,
+            endpoints = {}
         }
     end
 
@@ -153,10 +154,10 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
         for i = 0, numPlayers-1, 1 do
             local epcp = MockUDPEndpointManager_AddUDPEndpoint(manager)
             players[carsHandle].endpoints[#players[carsHandle].endpoints] = epcp
-            GGPO_Peer_AddPeer(players[i].ggpo, carsHandle, epcp)
+            GGPO.GGPO_Peer_AddPeer(players[i].ggpo, carsHandle, epcp)
             local eppc = MockUDPEndpointManager_AddUDPEndpoint(manager)
             players[i].endpoints[#players[i].endpoints] = eppc
-            GGPO_Peer_AddPeer(players[carsHandle].ggpo, i, eppc)
+            GGPO.GGPO_Peer_AddPeer(players[carsHandle].ggpo, i, eppc)
         end
     else
         -- create P2P network
@@ -164,7 +165,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
             for j = 0, numPlayers-1, 1 do
                 local eppp = MockUDPEndpointManager_AddUDPEndpoint(manager)
                 players[i].endpoints[#players[i].endpoints] = eppp
-                GGPO_Peer_AddPeer(players[i].ggpo, j, eppp)
+                GGPO.GGPO_Peer_AddPeer(players[i].ggpo, j, eppp)
             end
         end
     end
@@ -204,16 +205,17 @@ function MockGame_PressRandomButtons(mockGame : MockGame, player : PlayerHandle)
     local randomlowercase = function()
         return string.char(math.random(65, 65 + 25)):lower()
     end
-    local inputs = {}
+    local inputs = ""
     for i = 1, math.random(0,7), 1 do
-        inputs[i] = randomlowercase()
+        inputs = inputs .. randomlowercase()
     end
-    GGPO_Peer_AddLocalInput(mockGame.players[player].ggpo, inputs)
+    local ggpoinput = GGPO.GameInput_new(mockGame.players[player].state.frame, inputs)
+    GGPO.GGPO_Peer_AddLocalInput(mockGame.players[player].ggpo, ggpoinput)
 end
 
 function MockGame_IsStateSynchronized(mockGame : MockGame)
     
-    local last_confirmed_frame = frameMax
+    local last_confirmed_frame = GGPO.frameMax
     for i, player in pairs(mockGame.players) do
         last_confirmed_frame = math.min(last_confirmed_frame, player.ggpo.sync.last_confirmed_frame)
     end
@@ -243,7 +245,7 @@ return function()
             local endpointp1_p2 = MockUDPEndpointManager_AddUDPEndpoint(manager)
             local endpointp2_p1 = MockUDPEndpointManager_AddUDPEndpoint(manager)
 
-            local config = defaultGameConfig
+            local config = GGPO.defaultGameConfig
 
             local callbacks = {
                 SaveGameState = function(frame) end,
@@ -253,10 +255,10 @@ return function()
                 OnSpectatorEvent = function(event, spectator) end,
             }
 
-            local p1 = GGPO_Peer_new(gameConfig, callbacks, 1)
-            GGPO_Peer_AddPeer(p1, 2, endpointp1_p2)
-            local p2 = GGPO_Peer_new(gameConfig, callbacks, 2)
-            GGPO_Peer_AddPeer(p2, 1, endpointp1_p1)
+            local p1 = GGPO.GGPO_Peer_new(config, callbacks, 1)
+            GGPO.GGPO_Peer_AddPeer(p1, 2, endpointp1_p2)
+            local p2 = GGPO.GGPO_Peer_new(config, callbacks, 2)
+            GGPO.GGPO_Peer_AddPeer(p2, 1, endpointp2_p1)
 
             -- TODO
         end)
