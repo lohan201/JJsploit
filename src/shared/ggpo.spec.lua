@@ -81,6 +81,96 @@ end
 
 
 
+export type MockGameState = {
+    frame : Frame,
+    state : string,
+}
+
+function MockGameState_new() : MockGameState
+    local r = {
+        frame = frameInit,
+        state = "",
+    }
+    return r
+end
+
+-- a mock game, input is just a string with letters only! 
+export type MockGame = {
+    manager : MockUDPEndpointManager<string>,
+    players : { [PlayerHandle] : {ggpo : GGPO_Peer<string, string, ()>, state : MockGameState} },
+        spectators : { [number] : {ggpo : GGPO_Spectator<string, string, ()>, state : MockGameState} },
+}
+
+function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
+
+    local config = defaultGameConfig
+    local manager = MockUDPEndpointManager_new()
+    local players = {}
+    local playersIndices = {}
+    for i = 0, numPlayers-1, 1 do
+        playersIndices[i] = i
+    end
+    if isCars then
+        playersIndices[carsHandle] = carsHandle
+    end
+
+    for i,_ in pairs(playersIndices) do
+        local endpoint = MockUDPEndpointManager_AddUDPEndpoint(manager)
+        local ggporef = nil
+        local stateref = MockGameState_new()
+        local callbacks = {
+            SaveGameState = function(frame) 
+                assert(frame == playerState.frame)
+                return playerState.state
+            end,
+            LoadGameState = function(state, frame) 
+                playerState.state = state
+                playerState.frame = frame
+            end,
+            AdvanceFrame = function()
+                local pinputs = GGPO_Peer_SynchronizeInput<T,I,J>(ggporef, stateref.frame)
+                table.sort(pinputs)
+                stateref.state = stateref.state + tostring(stateref.frame) + ":"
+                for p, input in pairs(pinputs) do
+                    stateref.state = stateref.state + tostring(p) + "&" + input
+                end
+                stateref.state += stateref.state + "@"
+                stateref.frame += 1
+            end,
+            OnPeerEvent = function(event, player) end,
+            OnSpectatorEvent = function(event, spectator) end,
+        }  
+        ggporef = GGPO_Peer_new(config, callbacks, i)
+        players[i] = {
+            ggpo = ggporef,
+            state = stateref,
+        }
+    end
+
+    if isCars then
+        -- create CARS network
+        assert(players[carsHandle] ~= nil)
+        for i = 0, numPlayers-1, 1 do
+            GGPO_Peer_AddPeer(players[i].ggpo, carsHandle, MockUDPEndpointManager_AddUDPEndpoint(manager)
+            GGPO_Peer_AddPeer(players[carsHandle].ggpo, i, MockUDPEndpointManager_AddUDPEndpoint(manager))
+        end
+    else
+        -- create P2P network
+        for i = 0, numPlayers-1, 1 do
+            for j = 0, numPlayers-1, 1 do
+                GGPO_Peer_AddPeer(players[i].ggpo, j, MockUDPEndpointManager_AddUDPEndpoint(manager))
+            end
+        end
+    end
+
+    local r = {
+        manager = manager,
+        players = players,    
+        spectators = {},
+    }
+    return r
+end
+
 
 return function()
     describe("setup", function()
