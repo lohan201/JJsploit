@@ -362,6 +362,7 @@ end
 -- DONE UNTESTED
 export type Sync<T,I> = {
     callbacks : GGPOCallbacks<T,I>,
+    -- TODO need cleanup routine (with opt-out for testing)
     savedstate : { [Frame] : { state : T, checksum : string } },
     rollingback : boolean,
     last_confirmed_frame : Frame,

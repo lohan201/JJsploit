@@ -97,8 +97,9 @@ end
 -- a mock game, input is just a string with letters only! 
 export type MockGame = {
     manager : MockUDPEndpointManager<string>,
-    players : { [PlayerHandle] : {ggpo : GGPO_Peer<string, string, ()>, state : MockGameState} },
-        spectators : { [number] : {ggpo : GGPO_Spectator<string, string, ()>, state : MockGameState} },
+    players : { [PlayerHandle] : {ggpo : GGPO_Peer<string, string, ()>, state : MockGameState, endpoints : {[number] : MockUDPEndpointManager<string>} } },
+    -- TODO
+    --spectators : { [number] : {ggpo : GGPO_Spectator<string, string, ()>, state : MockGameState, endpoints : {[number] : MockUDPEndpointManager<string>} } },
 }
 
 function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
@@ -115,7 +116,6 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
     end
 
     for i,_ in pairs(playersIndices) do
-        local endpoint = MockUDPEndpointManager_AddUDPEndpoint(manager)
         local ggporef = nil
         local stateref = MockGameState_new()
         local callbacks = {
@@ -151,14 +151,20 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
         -- create CARS network
         assert(players[carsHandle] ~= nil)
         for i = 0, numPlayers-1, 1 do
-            GGPO_Peer_AddPeer(players[i].ggpo, carsHandle, MockUDPEndpointManager_AddUDPEndpoint(manager)
-            GGPO_Peer_AddPeer(players[carsHandle].ggpo, i, MockUDPEndpointManager_AddUDPEndpoint(manager))
+            local epcp = MockUDPEndpointManager_AddUDPEndpoint(manager)
+            players[carsHandle].endpoints[#players[carsHandle].endpoints] = epcp
+            GGPO_Peer_AddPeer(players[i].ggpo, carsHandle, epcp)
+            local eppc = MockUDPEndpointManager_AddUDPEndpoint(manager)
+            players[i].endpoints[#players[i].endpoints] = eppc
+            GGPO_Peer_AddPeer(players[carsHandle].ggpo, i, eppc)
         end
     else
         -- create P2P network
         for i = 0, numPlayers-1, 1 do
             for j = 0, numPlayers-1, 1 do
-                GGPO_Peer_AddPeer(players[i].ggpo, j, MockUDPEndpointManager_AddUDPEndpoint(manager))
+                local eppp = MockUDPEndpointManager_AddUDPEndpoint(manager)
+                players[i].endpoints[#players[i].endpoints] = eppp
+                GGPO_Peer_AddPeer(players[i].ggpo, j, eppp)
             end
         end
     end
@@ -166,14 +172,71 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
     local r = {
         manager = manager,
         players = players,    
-        spectators = {},
+        --spectators = {},
     }
     return r
 end
 
+-- update the game for totalMs at random intervals between min and max ms
+function MockGame_UpdatePlayer(mockGame : MockGame, player : PlayerHandle, totalMs : number, min : number, max : number)
+    local acc = 0
+    while acc < totalMs do
+        local delay = min + math.random() * (max - min)
+        acc = math.floor(acc + delay)
+        if acc > totalMs then
+            acc = totalMs
+        end 
+        local endpoints = mockGame.players[player].endpoints
+        for _, endpoint in pairs(endpoints) do
+            MockUDPEndpointManager_SetTime(endpoint, mockGame.manager.time + acc)
+            MockUDPEndpointManager_Update(endpoint)
+        end
+    end
+end
+
+function MockGame_UpdateAllPlayers(mockGame : MockGame, totalMs : number, min : number, max : number)
+    for i, _ in pairs(mockGame.players) do
+        MockGame_UpdatePlayer(mockGame, i, totalMs, min, max)
+    end
+end
+
+function MockGame_PressRandomButtons(mockGame : MockGame, player : PlayerHandle)
+    local randomlowercase = function()
+        return string.char(math.random(65, 65 + 25)):lower()
+    end
+    local inputs = {}
+    for i = 1, math.random(0,7), 1 do
+        inputs[i] = randomlowercase()
+    end
+    GGPO_Peer_AddLocalInput(mockGame.players[player].ggpo, inputs)
+end
+
+function MockGame_IsStateSynchronized(mockGame : MockGame)
+    
+    local last_confirmed_frame = frameMax
+    for i, player in pairs(mockGame.players) do
+        last_confirmed_frame = math.min(last_confirmed_frame, player.ggpo.sync.last_confirmed_frame)
+    end
+
+    playerStates = {}
+    for i, player in pairs(mockGame.players) do
+        playerStates[i] = player.ggpo.sync.savedstate[last_confirmed_frame]
+    end
+
+    -- TODO this can be better lol
+    for player, state in pairs(playerStates) do
+        for otherPlayer, otherState in pairs(playerStates) do
+            if player ~= otherPlayer then
+                return false
+            end
+        end
+    end
+
+    return true
+end
 
 return function()
-    describe("setup", function()
+    describe("basic", function()
         it("p2p basic", function()
             local manager = MockUDPEndpointManager_new()
             -- p1's endpoint to talk to p2
@@ -196,6 +259,22 @@ return function()
             GGPO_Peer_AddPeer(p2, 1, endpointp1_p1)
 
             -- TODO
+        end)
+    end)
+
+    describe("MockGame", function()
+        it("2 player p2p", function()
+            local game = MockGame_new(2, false)
+            for i = 1, 1000, 1 do
+                for j = 0, 1, 1 do
+                    MockGame_PressRandomButtons(game, j)
+                end
+                MockGame_UpdateAllPlayers(game, 100, 10, 20)
+
+                -- TODO check that all states are compatible
+                expect(MockGame_IsStateSynchronized(game))
+            end
+
         end)
     end)
 end

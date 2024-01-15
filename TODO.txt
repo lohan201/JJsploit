@@ -3,6 +3,7 @@
 ## WIP TODO IGNORE
 -add polling timer to udpproto
 -write tests lol
+-cleanup routine for savedstate in sync
 
 -udpproto to support spectator mode
   -reject/assert/log on input
