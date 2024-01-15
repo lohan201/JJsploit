@@ -331,7 +331,13 @@ function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Fram
         local last_frame = FrameInputMap_lastFrame(inputQueue.inputs)
         while expected_frame < frame do
             Log("Adding padding frame %d to account for change in frame delay.\n", expected_frame)
-            inputQueue.inputs[expected_frame] = { frame = expected_frame, input = inputQueue.inputs[last_frame].input }
+            local input : I?
+            if last_frame == frameNull then 
+                input = nil
+            else 
+                input = inputQueue.inputs[last_frame].input
+            end
+            inputQueue.inputs[expected_frame] = { frame = expected_frame, input = input }
             expected_frame += 1
         end
     end
@@ -342,7 +348,8 @@ function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameIn
     Log("adding input frame %d to queue.\n", inout_input.frame)
 
     -- verify that inputs are passed in sequentially by the user, regardless of frame delay.
-    assert(inputQueue.last_user_added_frame == frameNull or inout_input.frame == inputQueue.last_user_added_frame + 1)
+    assert(inputQueue.last_user_added_frame == frameNull or inout_input.frame == inputQueue.last_user_added_frame + 1, 
+        string.format("expected input frames to be sequential %s == %s+1", inout_input.frame, inputQueue.last_user_added_frame))
     inputQueue.last_user_added_frame = inout_input.frame
 
     local new_frame = InputQueue_AdvanceQueueHead(inputQueue, inout_input.frame)
@@ -371,6 +378,7 @@ end
 
 -- DONE UNTESTED
 export type Sync<T,I> = {
+    gameConfig : GameConfig<T,I>,
     callbacks : GGPOCallbacks<T,I>,
     -- TODO need cleanup routine (with opt-out for testing)
     savedstate : { [Frame] : { state : T, checksum : string } },
@@ -383,8 +391,9 @@ export type Sync<T,I> = {
 }
 
 
-function Sync_new<T,I>(max_prediction_frames: FrameCount, callbacks: GGPOCallbacks<T,I>) : Sync<T,I>
+function Sync_new<T,I>(max_prediction_frames: FrameCount, gameConfig: GameConfig<T,I>, callbacks: GGPOCallbacks<T,I>) : Sync<T,I>
     local r = {
+        gameConfig = gameConfig,
         callbacks = callbacks,
         savedstate = {},
         max_prediction_frames = max_prediction_frames,
@@ -396,6 +405,12 @@ function Sync_new<T,I>(max_prediction_frames: FrameCount, callbacks: GGPOCallbac
         input_queue = {},
     }
     return r
+end
+
+function Sync_LazyAddPlayer<T,I>(sync : Sync<T,I>, player : PlayerHandle)
+    if sync.input_queue[player] == nil then
+        sync.input_queue[player] = InputQueue_new(player, sync.gameConfig.inputDelay)
+    end
 end
 
 function Sync_SetLastConfirmedFrame<T,I>(sync : Sync<T,I>, frame : Frame)
@@ -419,6 +434,8 @@ end
 function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_input : GameInput<I>) : boolean
     assert(inout_input ~= nil, "expected input to not be nil")
 
+    Sync_LazyAddPlayer(sync, player)
+
     -- reject local input if we've gone too far ahead
     local frames_behind = sync.framecount - sync.last_confirmed_frame
     if sync.framecount >= sync.max_prediction_frames and frames_behind >= sync.max_prediction_frames then
@@ -438,6 +455,7 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_
 end
 
 function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_input : GameInput<I>)
+    Sync_LazyAddPlayer(sync, player)
     InputQueue_AddInput(sync.input_queue[player], inout_input)
 end
 
@@ -530,6 +548,7 @@ function Sync_CheckSimulationConsistency<T,I>(sync : Sync<T,I>) : Frame
 end
 
 function Sync_SetFrameDelay<T,I>(sync : Sync<T,I>, player : PlayerHandle, delay : FrameCount)
+    Sync_LazyAddPlayer(sync, player)
     sync.input_queue[player].frame_delay = delay
 end
 
@@ -779,7 +798,7 @@ local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoin
 
     local r = {
         -- TODO set
-        player = 0,
+        player = player,
         endpoint = uselessUDPEndpoint,
 
         -- TODO configure
@@ -845,7 +864,7 @@ function UDPProto_SendPeerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
 
 
     -- TODO I guess you actually don't want this check in server case where inputs might be skipped
-    assert(input.frame == udpproto.lastAddedLocalFrame + 1)
+    assert(input.frame == udpproto.lastAddedLocalFrame + 1, string.format("expected input frame %d to be %d + 1", input.frame, udpproto.lastAddedLocalFrame))
 
 
     udpproto.lastAddedLocalFrame = input.frame
@@ -933,7 +952,7 @@ function UDPProto_SendMsg<I>(udpproto : UDPProto<I>, msgc : UDPMsg_Contents<I>)
     udpproto.packets_sent += 1
     udpproto.bytes_sent += UDPMsg_Size(msg)
 
-    Log("SendMsg: %s", msg)
+    --Log("SendMsg: %s", msg)
     --_last_send_time = Platform::GetCurrentTimeMS();
     udpproto.endpoint.send(msg)
 end
@@ -1141,7 +1160,7 @@ function GGPO_Peer_new<T,I,J>(gameConfig : GameConfig<I,J>, callbacks : GGPOCall
     local r = {
         gameConfig = gameConfig,
         callbacks = callbacks,
-        sync = Sync_new(gameConfig.maxPredictionFrames, callbacks),
+        sync = Sync_new(gameConfig.maxPredictionFrames, gameConfig, callbacks),
         udps = {},
         spectators = {},
         player = player,

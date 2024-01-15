@@ -50,7 +50,7 @@ function MockUDPEndpointManager_SetTime<I>(manager : MockUDPEndpointManager<I>, 
   manager.time = time
 end
 
-function MockUDPEndpointManager_Update<I>(manager : MockUDPEndpointManager<I>)
+function MockUDPEndpointManager_PollUDP<I>(manager : MockUDPEndpointManager<I>)
 
     for endpoint, stuff in pairs(manager.endpoints) do
         for t, msg in stuff.msgQueue do
@@ -130,11 +130,11 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
             AdvanceFrame = function()
                 local pinputs = GGPO.GGPO_Peer_SynchronizeInput(ggporef, stateref.frame)
                 table.sort(pinputs)
-                stateref.state = stateref.state + tostring(stateref.frame) + ":"
+                stateref.state = stateref.state .. tostring(stateref.frame) .. ":"
                 for p, input in pairs(pinputs) do
-                    stateref.state = stateref.state + tostring(p) + "&" + input
+                    stateref.state = stateref.state .. tostring(p) .. "&" .. input.input
                 end
-                stateref.state += stateref.state + "@"
+                stateref.state = stateref.state .. ";"
                 stateref.frame += 1
             end,
             OnPeerEvent = function(event, player) end,
@@ -179,7 +179,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
 end
 
 -- update the game for totalMs at random intervals between min and max ms
-function MockGame_UpdatePlayer(mockGame : MockGame, player : PlayerHandle, totalMs : number, min : number, max : number)
+function MockGame_PollUDP(mockGame : MockGame, totalMs : number, min : number, max : number)
     local acc = 0
     while acc < totalMs do
         local delay = min + math.random() * (max - min)
@@ -187,17 +187,9 @@ function MockGame_UpdatePlayer(mockGame : MockGame, player : PlayerHandle, total
         if acc > totalMs then
             acc = totalMs
         end 
-        local endpoints = mockGame.players[player].endpoints
-        for _, endpoint in pairs(endpoints) do
-            MockUDPEndpointManager_SetTime(endpoint, mockGame.manager.time + acc)
-            MockUDPEndpointManager_Update(endpoint)
-        end
-    end
-end
-
-function MockGame_UpdateAllPlayers(mockGame : MockGame, totalMs : number, min : number, max : number)
-    for i, _ in pairs(mockGame.players) do
-        MockGame_UpdatePlayer(mockGame, i, totalMs, min, max)
+        -- TODO allow per player random updating...
+        MockUDPEndpointManager_SetTime(mockGame.manager, (mockGame.manager.time and mockGame.manager.time or 0) + acc)
+        MockUDPEndpointManager_PollUDP(mockGame.manager)
     end
 end
 
@@ -211,6 +203,13 @@ function MockGame_PressRandomButtons(mockGame : MockGame, player : PlayerHandle)
     end
     local ggpoinput = GGPO.GameInput_new(mockGame.players[player].state.frame, inputs)
     GGPO.GGPO_Peer_AddLocalInput(mockGame.players[player].ggpo, ggpoinput)
+end
+
+function MockGame_AdvanceFrame(mockGame : MockGame)
+    for i, player in pairs(mockGame.players) do
+        player.ggpo.callbacks.AdvanceFrame()
+        GGPO.GGPO_Peer_AdvanceFrame(player.ggpo)
+    end
 end
 
 function MockGame_IsStateSynchronized(mockGame : MockGame)
@@ -270,9 +269,11 @@ return function()
             for i = 1, 1000, 1 do
                 for j = 0, 1, 1 do
                     MockGame_PressRandomButtons(game, j)
+                    MockGame_AdvanceFrame(game)
                 end
-                MockGame_UpdateAllPlayers(game, 100, 10, 20)
+                
 
+                MockGame_PollUDP(game, 100, 10, 20)
                 -- TODO check that all states are compatible
                 expect(MockGame_IsStateSynchronized(game))
             end
