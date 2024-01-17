@@ -313,6 +313,7 @@ function InputQueue_GetInput<I>(inputQueue : InputQueue<I>, frame : Frame) : Gam
 end
 
 
+-- TODO rename this function, we dont have a queue head concept anymore, instead, just call it AdjustFrameDelay or something
 -- advance the queue head to target frame and returns frame with delay applied
 function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Frame) : Frame
     Log("advancing queue head to frame %d.\n", frame)
@@ -444,6 +445,7 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_
     end
 
     if sync.framecount == 0 then
+        -- TODO this is a little werid, better to do this in the ctor, but I guess the callback might not be ready then, so I guess this is fine too
         Sync_SaveCurrentFrame(sync)
     end
 
@@ -735,7 +737,8 @@ export type UDPProto<I> = {
     -- (according to self) frame self - frame peer
     local_frame_advantage : FrameCount,
 
-    -- TODO DELETE this should match playerData[player].lastFrame
+    -- right now, this should always match match playerData[player].lastFrame
+    -- however in the future, if we have cars auth input these will not match, playerData[player].lastFrame will be the last input received from cars
     lastAddedLocalFrame : Frame,
 
     -- stats
@@ -836,7 +839,10 @@ local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoin
 
     }
 
-    endpoint.subscribe(function(msg : UDPMsg<I>) UDPProto_OnMsg(r, msg) end)
+    endpoint.subscribe(function(msg : UDPMsg<I>) 
+        -- TODO assert that we aren't in rollback
+        UDPProto_OnMsg(r, msg) 
+    end)
 
     return r
 end
@@ -868,6 +874,8 @@ function UDPProto_SendPeerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
 
 
     udpproto.lastAddedLocalFrame = input.frame
+    -- TODO, don't do this if you want server to override player input
+    -- if not udpproto.localInputAuthority
     udpproto.playerData[udpproto.player].lastFrame = input.frame
 
     if UDPPROTO_NO_QUEUE_NIL_INPUT and input.input == nil then
@@ -1000,7 +1008,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     end
     
 
-    -- add the input to our pending output IF we are server
+    -- add the input to our pending output
     if udpproto.isProxy then
         for player, data in pairs(inputs) do
             for frame, input in pairs(data.inputs) do
@@ -1124,14 +1132,15 @@ function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : UDPNetworkStats
     return s
 end
     
-function UDPProto_SetLocalFrameNumber(udpproto : UDPProto<I>, localFrame : number)
+-- set the current local frame number so that we can update our frame advantage computation
+function UDPProto_SetLocalFrameNumber<I>(udpproto : UDPProto<I>, localFrame : number)
     -- TODO I think this computation is incorrect, I think it should actually be
     --local remoteFrame = udpproto.lastReceivedFrame + (udpproto.round_trip_time / 2 + msSinceLastReceivedFrame) / udpproto.msPerFrame 
     local remoteFrame = udpproto.lastReceivedFrame + udpproto.round_trip_time / udpproto.msPerFrame / 2
     udpproto.local_frame_advantage = remoteFrame - localFrame
 end
    
-function UDPProto_RecommendFrameDelay(udpproto : UDPProto<I>) : number
+function UDPProto_RecommendFrameDelay<I>(udpproto : UDPProto<I>) : number
     -- TODO
    --// XXX: require idle input should be a configuration parameter
    --return _timesync.recommend_frame_wait_duration(false);

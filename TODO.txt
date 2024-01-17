@@ -1,10 +1,19 @@
 
 
 ## WIP TODO IGNORE
--Sync_LazyAllocPlayer
--add polling timer to udpproto include calling GGPO_Peer_PollUdpProtocolEvents
+-meed to call Sync_AddRemoteInput somewhere
+  -GGPO_Peer_PollUdpProtocolEvents is wrong
+-add logging helpers to easily log tables and stuff etc
+-add polling timer to udpproto include calling GGPO_Peer_OnLoopPoll
+-also need to call peer::DoPoll every now and then
 -write tests lol
--cleanup routine for savedstate in sync
+-cleanup routine for savedstate in synced
+-add override and consistency assert in InputQueue_AddInput
+  -need to dinstguish between local input and remote input and local player remote input
+  -prob OK to assert that remote input is never double added?
+  -do i need to track last added remote/local input?
+  -ideally the same mechanism can be used to assert/override inputs that arrive out of order or from non auth peers 
+
 
 -udpproto to support spectator mode
   -reject/assert/log on input
@@ -26,6 +35,7 @@ V2-allow self to be flagged as authoritative inside sync/inputqueue
   -if peer does not send self inputs (but send other stuff for that frame) assume that local inputs are correct/authorized
     -NO this won't work, because peer sends player inputs from many different frames 
     -instead, just have server send back player inputs to confirm them OR send a separate confirmation packet
+  -why do I want server to override player inputs again?? IDK
 V2-figure out how to handle initial player data
   -prob best just to recommend X frames for syncing initial state and rift
   -send player data as server input on frame 0
