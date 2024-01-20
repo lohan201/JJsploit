@@ -1,15 +1,71 @@
 --!strict
 local Queue = require(script.Parent.util.queue)
 
-export type TimeMS = number
-
 -- helpers
+export type TimeMS = number
 local function now() : TimeMS
     return DateTime.now().UnixTimestampMillis
 end
 
 local function Log(s, ...)
     return print(s:format(...))
+end
+
+function extractFirstLineOfTraceback(traceback : string, linecount_ : number?) : {[number]:string}
+    local linecount = linecount_ or 1
+    local r = {}
+    local skip = 1
+    local i = 0
+    -- Use string.gmatch to iterate over each line in the traceback string
+    for line in string.gmatch(traceback, "[^\r\n]+") do
+        if skip > 0 then
+            skip -= 1
+        else
+            r[i] = line
+            i += 1
+            if i >= linecount then
+                break
+            end
+        end
+    end
+    return r 
+end
+
+export type Potato = { potato : (Potato) -> string }
+
+export type PotatoContext = {
+    context : Potato,
+    stackLines : number?
+}
+
+function ctx(p : Potato, stackLines : number?) : PotatoContext
+    return {
+        context = p,
+        stackLines = stackLines,
+    }
+end
+
+function Potato(pc : PotatoContext?, s : string, ...)
+    local ctxstr = nil
+    local stackLines = 1
+    if pc ~= nil then
+        ctxstr = pc.context.potato(pc.context)
+        if pc.stackLines ~= nil then
+            stackLines = pc.stackLines
+        end
+    end
+    local lines = extractFirstLineOfTraceback(debug.traceback(), stackLines)
+    local msg = s:format(...)
+
+    local finals = ""
+    if ctxstr ~= nil then
+        finals = "context: " .. ctxstr .. "\n"
+    end
+    finals = finals .. msg .. "\n"
+    finals = finals .. "stack:\n"
+    for i = 0, #lines, 1 do
+        finals = finals .. "    " .. lines[i] .. "\n"
+    end
 end
 
 
@@ -350,7 +406,7 @@ function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameIn
 
     -- verify that inputs are passed in sequentially by the user, regardless of frame delay.
     assert(inputQueue.last_user_added_frame == frameNull or inout_input.frame == inputQueue.last_user_added_frame + 1, 
-        string.format("expected input frames to be sequential %s == %s+1", inout_input.frame, inputQueue.last_user_added_frame))
+        string.format("expected input frames to be sequential %d == %d+1", inout_input.frame, inputQueue.last_user_added_frame))
     inputQueue.last_user_added_frame = inout_input.frame
 
     local new_frame = InputQueue_AdvanceQueueHead(inputQueue, inout_input.frame)
@@ -717,6 +773,12 @@ end
 -- in particular, manages the following:
 -- sending and acking input
 -- synchronizing (initialization)
+
+
+
+
+
+
 -- tracks ping for frame advantage computation
 export type UDPProto<I> = {
 
@@ -802,7 +864,7 @@ local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoin
     local r = {
         -- TODO set
         player = player,
-        endpoint = uselessUDPEndpoint,
+        endpoint = endpoint,
 
         -- TODO configure
         sendLatency = 0,
@@ -888,6 +950,8 @@ end
 
 
 function UDPProto_SendPendingOutput<I>(udpproto : UDPProto<I>)
+
+    print("UDPProto_SendPendingOutput " .. tostring(udpproto.player))
 
     -- TODO maybe set lastAddedLocalFrame here if server with null inputs
 
@@ -991,14 +1055,14 @@ local function UDPProto_UpdateNetworkStats<I>(udpproto : UDPProto<I>)
 end
 
 local function UDPProto_QueueEvent<I>(udpproto : UDPProto<I>, evt : GGPOEvent<I>)
-    Log("Queuing event: %s", evt);
+    --Log("Queuing event: %s", evt);
     udpproto.event_queue:enqueue(evt)
 end
 
 local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I>) 
 
     local inputs = msg.inputs
-    if #inputs == 0 then
+    if next(inputs) == nil then
         Log("UDPProto_OnInput: Received empty msg")
         return
     end
@@ -1092,7 +1156,7 @@ function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>)
     end
 
     udpproto.next_recv_seq = msg.seq;
-    Log("recv %s", msg)
+    --Log("recv %s", msg)
 
     if msg.m.t == "Ping" then
         UDPProto_OnPing(udpproto, msg.m)
@@ -1131,7 +1195,7 @@ function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : UDPNetworkStats
 
     return s
 end
-    
+   
 -- set the current local frame number so that we can update our frame advantage computation
 function UDPProto_SetLocalFrameNumber<I>(udpproto : UDPProto<I>, localFrame : number)
     -- TODO I think this computation is incorrect, I think it should actually be
@@ -1218,6 +1282,55 @@ function GGPO_Peer_SynchronizeInput<T,I,J>(peer : GGPO_Peer<T,I,J>, frame : Fram
     return Sync_SynchronizeInputs(peer.sync)
 end
 
+function GGPO_Peer_PollUdpProtocolEvents<T,I,J>(peer : GGPO_Peer<T,I,J>)
+    for player, udp in pairs(peer.udps) do
+        local evt = UDPProto_GetEvent(udp)
+        while evt ~= nil do
+            peer.callbacks.OnPeerEvent(evt, player)
+            evt = UDPProto_GetEvent(udp)
+        end
+    end
+    for i, udp in pairs(peer.spectators) do
+        local evt = UDPProto_GetEvent(udp)
+        while evt ~= nil do
+            peer.callbacks.OnSpectatorEvent(evt, i)
+            evt = UDPProto_GetEvent(udp)
+        end
+    end
+end
+
+function GGPO_Peer_DoPoll<T,I,J>(peer : GGPO_Peer<T,I,J>)
+
+    assert(not peer.sync.rollingback, "do not poll during rollback!")
+
+    for player, udp in pairs(peer.udps) do
+        UDPProto_OnLoopPoll(udp)
+    end
+
+    GGPO_Peer_PollUdpProtocolEvents(peer)
+
+    --if (!_synchronizing) {
+
+    -- do rollback if needed
+    Sync_CheckSimulation(peer.sync)
+    local current_frame = peer.sync.framecount
+    for player, udp in pairs(peer.udps) do
+        UDPProto_SetLocalFrameNumber(udp, current_frame)
+    end
+
+    local total_min_confirmed = frameMax
+    for player, udp in pairs(peer.udps) do
+        -- TODO NOTE this is different than original GGPO, in original GGPO, the peer has the  last received frame and connected status for all peers connected to player (N^2 pieces of data)
+        -- and takes the min of all those. I don't quite know why it does this at all, doing just one hop here seems sufficient/better. I guess because we might be disconnected to the peer so we rely on relayed information to get the last frame?
+        total_min_confirmed = math.min(udp.lastReceivedFrame, total_min_confirmed)
+    end
+
+    print("total_min_confirmed" .. tostring(total_min_confirmed))
+
+    Sync_SetLastConfirmedFrame(peer.sync, total_min_confirmed)
+
+end
+
 -- ggpo_advance_frame
 function GGPO_Peer_AdvanceFrame<T,I,J>(peer : GGPO_Peer<T,I,J>)
     Sync_IncrementFrame(peer.sync)
@@ -1241,30 +1354,14 @@ function GGPO_Peer_AddLocalInput<T,I,J>(peer : GGPO_Peer<T,I,J>, inout_input: Ga
         Log("Frame dropped due to input delay shenanigans")
         return false
     else
-        for _, udp in pairs(peer.udps) do
+        for _, udp in pairs(peer.udps) do 
+            print("sending input!!! frame: " .. tostring(inout_input.frame) .. " input: " .. tostring(inout_input.input))
             UDPProto_SendPeerInput(udp, inout_input)
         end
     end
 
     return true
 
-end
-
-function GGPO_Peer_PollUdpProtocolEvents<T,I,J>(peer : GGPO_Peer<T,I,J>)
-    for player, udp in pairs(peer.udps) do
-        local evt = UDPProto_GetEvent(udp)
-        while evt ~= nil do
-            peer.callbacks.OnPeerEvent(evt, player)
-            evt = UDPProto_GetEvent(udp)
-        end
-    end
-    for i, udp in pairs(peer.spectators) do
-        local evt = UDPProto_GetEvent(udp)
-        while evt ~= nil do
-            peer.callbacks.OnSpectatorEvent(evt, i)
-            evt = UDPProto_GetEvent(udp)
-        end
-    end
 end
 
 -- Called only as the result of a local decision to disconnect
@@ -1280,11 +1377,16 @@ end
 
 
 return {
+    now = now,
+
     frameInit = frameInit,
     frameNull = frameNull,
     frameMax = frameMax,
     frameNegOne = frameNegOne,
     defaultGameConfig = defaultGameConfig,
+
+    carsHandle = carsHandle,
+    spectatorHandle = spectatorHandle,
 
     GameInput_new = GameInput_new,
     
@@ -1296,6 +1398,6 @@ return {
     GGPO_Peer_SynchronizeInput = GGPO_Peer_SynchronizeInput,
     GGPO_Peer_AdvanceFrame = GGPO_Peer_AdvanceFrame,
     GGPO_Peer_AddLocalInput = GGPO_Peer_AddLocalInput,
-    GGPO_Peer_PollUdpProtocolEvents = GGPO_Peer_PollUdpProtocolEvents,
+    GGPO_Peer_DoPoll = GGPO_Peer_DoPoll,
     GGPO_Peer_DisconnectPlayer = GGPO_Peer_DisconnectPlayer,
 }

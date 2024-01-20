@@ -14,10 +14,15 @@ export type MockUDPEndpointStuff<I> = {
     subscribers : { [number] : (UDPMsg<I>) -> () },
 }
 
+function tprint(s : string) 
+    print(s)
+    --print(debug.traceback())
+end
+
 function MockUDPEndointStuff_new<I>() : MockUDPEndpointStuff<I>
     local r = {
-        delayMin = 100,
-        delayMax = 200,
+        delayMin = 10,
+        delayMax = 20,
         dropRate = 0,
         msgQueue = {},
         subscribers = {},
@@ -51,12 +56,22 @@ function MockUDPEndpointManager_SetTime<I>(manager : MockUDPEndpointManager<I>, 
 end
 
 function MockUDPEndpointManager_PollUDP<I>(manager : MockUDPEndpointManager<I>)
-
+    --print("going through endpoints " .. tostring(#manager.endpoints))
     for endpoint, stuff in pairs(manager.endpoints) do
+        --print("endpoint " .. tostring(endpoint) .. " stuff " .. tostring(stuff))
         for t, msg in stuff.msgQueue do
-            if t <= time then
+            --print(" sending msg " .. tostring(msg) .. " at time " .. tostring(t) .. " current time " .. tostring(manager.time))
+            if t <= manager.time then
                 endpoint.send(msg)
                 stuff.msgQueue[t] = nil
+            end
+        end
+    end
+
+    for endpoint, stuff in pairs(manager.endpoints) do
+        for _, f in pairs(stuff.subscribers) do
+            for t, msg in stuff.msgQueue do
+                f(msg)
             end
         end
     end
@@ -66,8 +81,9 @@ function MockUDPEndpointManager_AddUDPEndpoint<I>(manager : MockUDPEndpointManag
     local endpointStuff = MockUDPEndointStuff_new()
     local r = {
         send = function(msg)
+            print("sending msg " .. tostring(msg))
             local delay = endpointStuff.delayMin + math.random() * (endpointStuff.delayMax - endpointStuff.delayMin)
-            local epochMs = now() + math.floor(delay)
+            local epochMs = GGPO.now() + math.floor(delay)
             endpointStuff.msgQueue[epochMs] = msg
             table.sort(endpointStuff)
         end,
@@ -76,6 +92,7 @@ function MockUDPEndpointManager_AddUDPEndpoint<I>(manager : MockUDPEndpointManag
             endpointStuff.subscribers[id] = f
         end,
     }
+    manager.endpoints[r] = endpointStuff
     return r
 end
 
@@ -112,7 +129,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
         playersIndices[i] = i
     end
     if isCars then
-        playersIndices[carsHandle] = carsHandle
+        playersIndices[GGPO.carsHandle] = GGPO.carsHandle
     end
 
     for i,_ in pairs(playersIndices) do
@@ -128,6 +145,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
                 stateref.frame = frame
             end,
             AdvanceFrame = function()
+                tprint(string.format("advancing frame %d for player %d", stateref.frame, i))
                 local pinputs = GGPO.GGPO_Peer_SynchronizeInput(ggporef, stateref.frame)
                 table.sort(pinputs)
                 stateref.state = stateref.state .. tostring(stateref.frame) .. ":"
@@ -150,14 +168,14 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
 
     if isCars then
         -- create CARS network
-        assert(players[carsHandle] ~= nil)
+        assert(players[GGPO.carsHandle] ~= nil)
         for i = 0, numPlayers-1, 1 do
             local epcp = MockUDPEndpointManager_AddUDPEndpoint(manager)
-            players[carsHandle].endpoints[#players[carsHandle].endpoints] = epcp
-            GGPO.GGPO_Peer_AddPeer(players[i].ggpo, carsHandle, epcp)
+            players[GGPO.carsHandle].endpoints[#players[GGPO.carsHandle].endpoints] = epcp
+            GGPO.GGPO_Peer_AddPeer(players[i].ggpo, GGPO.carsHandle, epcp)
             local eppc = MockUDPEndpointManager_AddUDPEndpoint(manager)
             players[i].endpoints[#players[i].endpoints] = eppc
-            GGPO.GGPO_Peer_AddPeer(players[carsHandle].ggpo, i, eppc)
+            GGPO.GGPO_Peer_AddPeer(players[GGPO.carsHandle].ggpo, i, eppc)
         end
     else
         -- create P2P network
@@ -179,7 +197,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
 end
 
 -- update the game for totalMs at random intervals between min and max ms
-function MockGame_PollUDP(mockGame : MockGame, totalMs : number, min : number, max : number)
+function MockGame_Poll(mockGame : MockGame, totalMs : number, min : number, max : number)
     local acc = 0
     while acc < totalMs do
         local delay = min + math.random() * (max - min)
@@ -190,6 +208,11 @@ function MockGame_PollUDP(mockGame : MockGame, totalMs : number, min : number, m
         -- TODO allow per player random updating...
         MockUDPEndpointManager_SetTime(mockGame.manager, (mockGame.manager.time and mockGame.manager.time or 0) + acc)
         MockUDPEndpointManager_PollUDP(mockGame.manager)
+    end
+
+    -- NOTE that the time inside ggpo will not match the mocked time above
+    for i, player in pairs(mockGame.players) do
+        GGPO.GGPO_Peer_DoPoll(player.ggpo)
     end
 end
 
@@ -219,15 +242,19 @@ function MockGame_IsStateSynchronized(mockGame : MockGame)
         last_confirmed_frame = math.min(last_confirmed_frame, player.ggpo.sync.last_confirmed_frame)
     end
 
+    print("last confirmed frame: " .. tostring(last_confirmed_frame))
+
     playerStates = {}
     for i, player in pairs(mockGame.players) do
         playerStates[i] = player.ggpo.sync.savedstate[last_confirmed_frame]
+
+        print("saved state for player: " .. tostring(i) .. " state: " .. tostring(playerStates[i].state))
     end
 
     -- TODO this can be better lol
     for player, state in pairs(playerStates) do
         for otherPlayer, otherState in pairs(playerStates) do
-            if player ~= otherPlayer then
+            if state ~= otherState then
                 return false
             end
         end
@@ -265,15 +292,17 @@ return function()
 
     describe("MockGame", function()
         it("2 player p2p", function()
+            print("initializing mock p2p game with 2 players)")
             local game = MockGame_new(2, false)
-            for i = 1, 1000, 1 do
+            for i = 0, 1000, 1 do
+                print("processing frame " .. tostring(i))
                 for j = 0, 1, 1 do
+                    print("processing frame " .. tostring(i) .. " for player " .. tostring(j))
                     MockGame_PressRandomButtons(game, j)
-                    MockGame_AdvanceFrame(game)
                 end
+                MockGame_AdvanceFrame(game)
                 
-
-                MockGame_PollUDP(game, 100, 10, 20)
+                MockGame_Poll(game, 100, 10, 20)
                 -- TODO check that all states are compatible
                 expect(MockGame_IsStateSynchronized(game))
             end

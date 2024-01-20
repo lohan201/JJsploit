@@ -1,6 +1,11 @@
 
 
 ## WIP TODO IGNORE
+-utility methods
+  -better logging function, maybe extract callsite from debug.callstack or whatever
+  -proper table counting method to replace #
+  -proper table empty method to replace #/next
+  
 -meed to call Sync_AddRemoteInput somewhere
   -GGPO_Peer_PollUdpProtocolEvents is wrong
 -add logging helpers to easily log tables and stuff etc
