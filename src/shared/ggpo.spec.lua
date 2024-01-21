@@ -33,23 +33,23 @@ end
 
 export type MockUDPEndpointManager<I> = {
     endpoints : {[UDPEndpoint<I>] : MockUDPEndpointStuff<I> },
-    time : number?,
+    time : number,
 }
 
 function MockUDPEndpointManager_new<I>() : MockUDPEndpointManager<I>
     local r = {
         endpoints = {},
-        time = nil,
+        time = -1,
     }
     return r
 end
 
 function MockUDPEndpointManager_SetTime<I>(manager : MockUDPEndpointManager<I>, time : number?)
   if time == nil then
-    time = now()
+    time = GGPO.now()
   end
 
-  if manager.time and manager.time > time then
+  if manager.time > time then
     error("mock time must be monotonic")
   end
   manager.time = time
@@ -59,22 +59,22 @@ function MockUDPEndpointManager_PollUDP<I>(manager : MockUDPEndpointManager<I>)
     --print("going through endpoints " .. tostring(#manager.endpoints))
     for endpoint, stuff in pairs(manager.endpoints) do
         --print("endpoint " .. tostring(endpoint) .. " stuff " .. tostring(stuff))
-        for t, msg in stuff.msgQueue do
-            --print(" sending msg " .. tostring(msg) .. " at time " .. tostring(t) .. " current time " .. tostring(manager.time))
+        for t, msgs in stuff.msgQueue do
+            --print(" sending msg " .. tostring(msgs) .. " at time " .. tostring(t) .. " current time " .. tostring(manager.time))
             if t <= manager.time then
-                endpoint.send(msg)
+                for _, f in pairs(stuff.subscribers) do
+                    for _, msg in pairs(msgs) do
+                        f(msg)
+                    end
+                end
                 stuff.msgQueue[t] = nil
             end
         end
     end
+end
 
-    for endpoint, stuff in pairs(manager.endpoints) do
-        for _, f in pairs(stuff.subscribers) do
-            for t, msg in stuff.msgQueue do
-                f(msg)
-            end
-        end
-    end
+function array_append<T>(t : {[number] : T}, value : T)
+    t[#t] = value
 end
 
 function MockUDPEndpointManager_AddUDPEndpoint<I>(manager : MockUDPEndpointManager<I>) : UDPEndpoint<I>
@@ -83,12 +83,16 @@ function MockUDPEndpointManager_AddUDPEndpoint<I>(manager : MockUDPEndpointManag
         send = function(msg)
             --print("sending msg " .. tostring(msg))
             local delay = endpointStuff.delayMin + math.random() * (endpointStuff.delayMax - endpointStuff.delayMin)
-            local epochMs = GGPO.now() + math.floor(delay)
-            endpointStuff.msgQueue[epochMs] = msg
-            table.sort(endpointStuff)
+            local epochMs = manager.time + math.floor(delay)
+            -- LOL terrible hack to disambiguate epochMs...
+            if endpointStuff.msgQueue[epochMs] == nil then
+                endpointStuff.msgQueue[epochMs] = {}
+            end
+            array_append(endpointStuff.msgQueue[epochMs], msg)
+            table.sort(endpointStuff.msgQueue)
         end,
         subscribe = function(f)
-            local id = #endpointStuff.subscribers + 1
+            local id = #endpointStuff.subscribers
             endpointStuff.subscribers[id] = f
         end,
     }
@@ -206,7 +210,7 @@ function MockGame_Poll(mockGame : MockGame, totalMs : number, min : number, max 
             acc = totalMs
         end 
         -- TODO allow per player random updating...
-        MockUDPEndpointManager_SetTime(mockGame.manager, (mockGame.manager.time and mockGame.manager.time or 0) + acc)
+        MockUDPEndpointManager_SetTime(mockGame.manager, mockGame.manager.time + acc)
         MockUDPEndpointManager_PollUDP(mockGame.manager)
     end
 

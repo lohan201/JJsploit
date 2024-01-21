@@ -1198,8 +1198,8 @@ local function UDPProto_ClearInputsBefore<I>(udpproto : UDPProto<I>, frame : Fra
                 data.pending_output[i] = nil
             end
 
-            local keys = debug_tablekeystostring(data.pending_output)
-            Potato(Potato.Debug, ctx(udpproto), "Cleared pending output for player %d from %d to %d, left with keys: %s)", player, start, frame, keys)
+            --local keys = debug_tablekeystostring(data.pending_output)
+            --Potato(Potato.Debug, ctx(udpproto), "Cleared pending output for player %d from %d to %d, left with keys: %s)", player, start, frame, keys)
         end
     end
 end
