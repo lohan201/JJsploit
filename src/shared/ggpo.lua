@@ -998,7 +998,7 @@ local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoin
         stats_start_time = 0,
 
 
-        last_sent_input = { frame = frameNull, input = nil },
+        last_sent_input = GameInput_new(frameNull, nil),
 
 
         next_send_seq = 0,
@@ -1181,8 +1181,19 @@ end
 
 local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I>) 
 
+    local ds = ""
+    for player, data in pairs(msg.inputs) do
+        local fs = ""
+        for frame, input in pairs(data.inputs) do
+            fs = fs .. tostring(frame) .. ","
+        end
+        ds = ds .. string.format("(%d: %d - %s),", player, tablecount(data.inputs), fs)
+    end
+    Potato(Potato.Info, ctx(udpproto), "Received input packet (player,frame count) %s (peer frame: %d, ack: %d)", ds, msg.peerFrame, msg.ack_frame)
+    
+
     local inputs = msg.inputs
-    if next(inputs) == nil then
+    if isempty(inputs)then
         Potato(Potato.Warn, ctx(udpproto), "UDPProto_OnInput: Received empty msg")
         return
     end
@@ -1190,7 +1201,6 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     for player, _ in pairs(inputs) do
         UDPProto_LazyInitPlayer(udpproto, player)
     end
-    
 
     -- add the input to our pending output
     if udpproto.isProxy then
@@ -1208,7 +1218,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     end
 
     -- now fill in empty inputs from udpproto.playerData[player].lastFrame+1 to msg.inputs[player].lastFrame because they get omitted for performance if they were nil
-    assert(inputs[udpproto.player] ~= nil, "expected to receive inputs for peer")
+    Tomato(ctx(udpproto), inputs[udpproto.player] ~= nil, "expected to receive inputs for peer")
     for player, data in pairs(inputs) do
         for i = udpproto.playerData[player].lastFrame+1, data.lastFrame, 1 do
             if inputs[player][i] == nil then
