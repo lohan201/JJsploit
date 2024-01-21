@@ -1505,20 +1505,30 @@ end
 return {
     now = now,
 
+    -- constants
     frameInit = frameInit,
     frameNull = frameNull,
     frameMax = frameMax,
     frameNegOne = frameNegOne,
     defaultGameConfig = defaultGameConfig,
-
     carsHandle = carsHandle,
     spectatorHandle = spectatorHandle,
 
-    -- exposed for testing
+    -- helpers exposed for testing
     isempty = isempty,
     tablecount = tablecount,
+
+    -- exposed for testing
     FrameInputMap_lastFrame = FrameInputMap_lastFrame,
     FrameInputMap_firstFrame = FrameInputMap_firstFrame,
+
+    -- UDPProto stuff 
+    -- exposed for testing
+    uselessUDPEndpoint = uselessUDPEndpoint,
+    UDPProto_Player_new = UDPProto_Player_new,
+    UDPProto_ClearInputsBefore = UDPProto_ClearInputsBefore,
+    UDPProto_new = UDPProto_new,
+
 
 
     GameInput_new = GameInput_new,
