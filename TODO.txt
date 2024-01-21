@@ -18,6 +18,7 @@
   -prob OK to assert that remote input is never double added?
   -do i need to track last added remote/local input?
   -ideally the same mechanism can be used to assert/override inputs that arrive out of order or from non auth peers 
+  -Pretty sure you need to let sync know somehow that inputs were overridden
 
 
 -udpproto to support spectator mode

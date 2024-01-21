@@ -11,6 +11,18 @@ local function Log(s, ...)
     return print(s:format(...))
 end
 
+local function isempty(t)
+    return next(t) == nil
+end
+
+local function tablecount(t)
+    local count = 0
+    for _, _ in pairs(t) do
+        count += 1
+    end
+    return count
+end
+
 
 -- custom logging
 
@@ -340,8 +352,8 @@ export type InputQueue<I> = {
     player : PlayerHandle,
     first_frame : boolean,
 
-    last_user_added_frame : Frame,
-    last_added_frame : Frame,
+    last_user_added_frame : Frame, -- does not include frame_delay
+    last_added_frame : Frame, -- accounts for frame_delay, will equal last_user_added_frame + frame_delay if there were no frame delay shenanigans
     first_incorrect_frame : Frame,
     last_frame_requested : Frame,
 
@@ -1482,8 +1494,14 @@ return {
     carsHandle = carsHandle,
     spectatorHandle = spectatorHandle,
 
+    -- exposed for testing
+    isempty = isempty,
+    tablecount = tablecount,
+    FrameInputMap_lastFrame = FrameInputMap_lastFrame,
+    FrameInputMap_firstFrame = FrameInputMap_firstFrame,
+
+
     GameInput_new = GameInput_new,
-    
     GGPO_Peer_new = GGPO_Peer_new,
     GGPO_Peer_AddPeer = GGPO_Peer_AddPeer,
     GGPO_Peer_AddSpectator = GGPO_Peer_AddSpectator,

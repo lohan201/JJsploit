@@ -24,6 +24,15 @@ the main implementation is roblox-agnostic, so you could in principle use it out
 - udp_proto
 
 
+# understanding GGPO
+
+
+# terminology
+- frame: discrete unit of time measurement for the game
+  - starts at frame 0
+  - note that input on frame X gets included in game state for frame X+1
+
+
 # changes from GGPO
 
 for folks familiar with the original [ggpo](https://github.com/pond3r/ggpo) implementation, this section documents some of the major changes
