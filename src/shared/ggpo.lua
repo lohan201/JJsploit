@@ -1187,7 +1187,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
         for frame, input in pairs(data.inputs) do
             fs = fs .. tostring(frame) .. ","
         end
-        ds = ds .. string.format("(%d: %d - %s),", player, tablecount(data.inputs), fs)
+        ds = ds .. string.format("(%d: %s),", player, fs)
     end
     Potato(Potato.Info, ctx(udpproto), "Received input packet (player,frame count) %s (peer frame: %d, ack: %d)", ds, msg.peerFrame, msg.ack_frame)
     
