@@ -509,11 +509,14 @@ function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameIn
         inputQueue.inputs[new_frame] = inout_input
         inputQueue.last_added_frame = new_frame
     end
+
+    inputQueue.first_frame = false
 end
    
 
 -- DONE UNTESTED
 export type Sync<T,I> = {
+    player : PlayerHandle,
     gameConfig : GameConfig<T,I>,
     callbacks : GGPOCallbacks<T,I>,
     -- TODO need cleanup routine (with opt-out for testing)
@@ -527,8 +530,9 @@ export type Sync<T,I> = {
 }
 
 
-function Sync_new<T,I>(max_prediction_frames: FrameCount, gameConfig: GameConfig<T,I>, callbacks: GGPOCallbacks<T,I>) : Sync<T,I>
+function Sync_new<T,I>(player : PlayerHandle, max_prediction_frames: FrameCount, gameConfig: GameConfig<T,I>, callbacks: GGPOCallbacks<T,I>) : Sync<T,I>
     local r = {
+        player = player,
         gameConfig = gameConfig,
         callbacks = callbacks,
         savedstate = {},
@@ -1320,7 +1324,7 @@ function GGPO_Peer_new<T,I,J>(gameConfig : GameConfig<I,J>, callbacks : GGPOCall
     local r = {
         gameConfig = gameConfig,
         callbacks = callbacks,
-        sync = Sync_new(gameConfig.maxPredictionFrames, gameConfig, callbacks),
+        sync = Sync_new(player, gameConfig.maxPredictionFrames, gameConfig, callbacks),
         udps = {},
         spectators = {},
         player = player,
