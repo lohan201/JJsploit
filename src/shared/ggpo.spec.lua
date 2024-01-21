@@ -242,13 +242,13 @@ function MockGame_IsStateSynchronized(mockGame : MockGame)
         last_confirmed_frame = math.min(last_confirmed_frame, player.ggpo.sync.last_confirmed_frame)
     end
 
-    print("last confirmed frame: " .. tostring(last_confirmed_frame))
+    print("MockGame_IsStateSynchronized: last confirmed frame: " .. tostring(last_confirmed_frame))
 
     playerStates = {}
     for i, player in pairs(mockGame.players) do
         playerStates[i] = player.ggpo.sync.savedstate[last_confirmed_frame]
 
-        print("saved state for player: " .. tostring(i) .. " state: " .. tostring(playerStates[i].state))
+        print("MockGame_IsStateSynchronized: saved state for player: " .. tostring(i) .. " state: " .. tostring(playerStates[i].state))
     end
 
     -- TODO this can be better lol
@@ -294,8 +294,8 @@ return function()
         it("2 player p2p", function()
             print("initializing mock p2p game with 2 players)")
             local game = MockGame_new(2, false)
-            for i = 0, 1000, 1 do
-                print("processing frame " .. tostring(i))
+            for i = 0, 10, 1 do
+                --print("processing frame " .. tostring(i))
                 for j = 0, 1, 1 do
                     print("processing frame " .. tostring(i) .. " for player " .. tostring(j))
                     MockGame_PressRandomButtons(game, j)

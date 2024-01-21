@@ -11,10 +11,37 @@ local function Log(s, ...)
     return print(s:format(...))
 end
 
-function extractFirstLineOfTraceback(traceback : string, linecount_ : number?) : {[number]:string}
+
+-- custom logging
+
+type PotatoSeverityFakeEnum = {
+    ASSERT : number,
+    Error : number,
+    Warn : number,
+    Info : number,
+    Debug : number,
+    Trace : number,
+}
+
+local Potato : PotatoSeverityFakeEnum = {
+    ASSERT = -1,
+    Error = 0,
+    Warn = 1,
+    Info = 2,
+    Debug = 3,
+    Trace = 4,
+}
+
+export type PotatoSeverity = number
+
+export type Potato = { potato : (Potato, PotatoSeverity, PotatoContext) -> string }
+
+local function extractFirstLineOfTraceback(traceback : string, linecount_ : number?) : {[number]:string}
     local linecount = linecount_ or 1
     local r = {}
-    local skip = 1
+    -- first line just says stack
+    -- second line is the indirect in __call
+    local skip = 2
     local i = 0
     -- Use string.gmatch to iterate over each line in the traceback string
     for line in string.gmatch(traceback, "[^\r\n]+") do
@@ -31,8 +58,6 @@ function extractFirstLineOfTraceback(traceback : string, linecount_ : number?) :
     return r 
 end
 
-export type Potato = { potato : (Potato) -> string }
-
 export type PotatoContext = {
     context : Potato,
     stackLines : number?
@@ -45,11 +70,11 @@ function ctx(p : Potato, stackLines : number?) : PotatoContext
     }
 end
 
-function Potato(pc : PotatoContext?, s : string, ...)
+local function potatoformat(severity : PotatoSeverity, pc : PotatoContext?, s : string, ...) : string
     local ctxstr = nil
     local stackLines = 1
     if pc ~= nil then
-        ctxstr = pc.context.potato(pc.context)
+        ctxstr = pc.context.potato(pc.context, Potato.Trace, pc)
         if pc.stackLines ~= nil then
             stackLines = pc.stackLines
         end
@@ -58,13 +83,48 @@ function Potato(pc : PotatoContext?, s : string, ...)
     local msg = s:format(...)
 
     local finals = ""
+    
+    if severity == Potato.Error then
+        finals = "ERROR: "
+    elseif severity == Potato.Warn then
+        finals = "WARN: "
+    elseif severity == Potato.Info then
+        finals = "INFO: "
+    elseif severity == Potato.Debug then
+        finals = "DEBUG: "
+    elseif severity == Potato.Trace then
+        finals = "TRACE: "
+    end
+    finals = finals .. msg .. "\n"
     if ctxstr ~= nil then
         finals = "context: " .. ctxstr .. "\n"
     end
-    finals = finals .. msg .. "\n"
-    finals = finals .. "stack:\n"
+    finals = finals .. "stack: "
+    if #lines > 1 then
+        finals = finals .. "\n"
+    end
     for i = 0, #lines, 1 do
         finals = finals .. "    " .. lines[i] .. "\n"
+    end
+    return finals
+end
+
+local potato_severity = Potato.Trace
+
+local potatometatable = {
+    __call = function(self, severity : PotatoSeverity, pc : PotatoContext?, s : string, ...)
+        if severity > potato_severity then
+            return
+        end
+        print(potatoformat(severity, pc, s, ...))
+    end
+}
+setmetatable(Potato, potatometatable)
+
+function Tomato(pc : PotatoContext?, condition : any, s_ : string?, ...)
+    if condition == nil or condition == false then
+        local s = s_ or "assertion failed"
+        error(potatoformat(Potato.ASSERT, pc, s, ...))
     end
 end
 
@@ -176,6 +236,9 @@ function GameInput_new<I>(frame : Frame, input : I?) : GameInput<I>
     local r = {
         frame = frame,
         input = input,
+        potato = function(self : GameInput<I>)
+            return string.format("GameInput: frame: %d, input: %s", self.frame, tostring(self.input))
+        end
     }
     return r
 end
@@ -276,6 +339,8 @@ export type InputQueue<I> = {
     frame_delay : FrameCount,
 
     inputs : FrameInputMap<I>,
+
+    potato : (InputQueue<I>) -> string,
 }
 
 function InputQueue_new<I>(player: PlayerHandle, frame_delay : number) : InputQueue<I>
@@ -291,6 +356,11 @@ function InputQueue_new<I>(player: PlayerHandle, frame_delay : number) : InputQu
         frame_delay = frame_delay,
 
         inputs = {},
+
+        potato = function(self : InputQueue<I>)
+            return string.format("InputQueue: player: %d, last_user_added_frame: %d, last_added_frame: %d, first_incorrect_frame: %d, last_frame_requested: %d, frame_delay: %d", 
+                self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay)
+        end,
     }
     return r
 end
@@ -316,7 +386,7 @@ function InputQueue_DiscardConfirmedFrames<I>(inputQueue : InputQueue<I>, frame 
         frame = math.min(frame, inputQueue.last_frame_requested)
     end
 
-    Log("discarding confirmed frames up to %d (last_added:%d).\n", frame, inputQueue.last_added_frame)
+    Potato(Potato.Info, ctx(inputQueue), "InputQueue_DiscardConfirmedFrames: frame: %d", frame)
 
     local start = FrameInputMap_firstFrame(inputQueue.inputs)
     if start ~= frameNull and start <= frame then
@@ -329,23 +399,23 @@ end
 
 
 function InputQueue_GetConfirmedInput<I>(inputQueue : InputQueue<I>, frame : Frame) : GameInput<I>
-    assert(inputQueue.first_incorrect_frame == frameNull or frame < inputQueue.first_incorrect_frame)
+    Tomato(ctx(inputQueue), inputQueue.first_incorrect_frame == frameNull or frame < inputQueue.first_incorrect_frame)
     local fd = inputQueue.inputs[frame]
-    assert(fd, "expected frame %d to exist, this probably means the frame has not been confirmed for this player!", frame)
+    Tomato(ctx(inputQueue), fd, "expected frame %d to exist, this probably means the frame has not been confirmed for this player!", frame)
     return fd
 end
 
 
 
 function InputQueue_GetInput<I>(inputQueue : InputQueue<I>, frame : Frame) : GameInput<I>
-    Log("requesting input frame %d.\n", frame);
+    Potato(Potato.Debug, ctx(inputQueue), "requesting input frame %d.", frame);
 
     --[[
     No one should ever try to grab any input when we have a prediction
     error.  Doing so means that we're just going further down the wrong
     path.  ASSERT this to verify that it's true.
     ]]
-    assert(inputQueue.first_incorrect_frame == frameNull);
+    Tomato(ctx(inputQueue), inputQueue.first_incorrect_frame == frameNull);
 
     inputQueue.last_frame_requested = frame;
 
@@ -353,15 +423,15 @@ function InputQueue_GetInput<I>(inputQueue : InputQueue<I>, frame : Frame) : Gam
     if fd then
         return fd
     else
-        Log("requested frame %d not found in queue.", frame);
+        Potato(Potato.Info, ctx(inputQueue), "requested frame %d not found in queue.", frame);
         local lastFrame = FrameInputMap_lastFrame(inputQueue.inputs)
         -- eventually we may drop this requirement and use a more complex prediction algorithm, in particular, we may have inputs from the future 
-        assert(lastFrame < frame, "expected frame used for prediction to be less than requested frame")
+        Tomato(ctx(inputQueue), lastFrame < frame, "expected frame used for prediction to be less than requested frame")
         if lastFrame ~= frameNull then
-            Log("basing new prediction frame from previously added frame (frame:%d).", lastFrame)
+            Potato(Potato.Debug, ctx(inputQueue), "basing new prediction frame from previously added frame (frame:%d).", lastFrame)
             return inputQueue.inputs[lastFrame]
         else
-            Log("basing new prediction frame from nothing, since we have no frames yet.");
+            Potato(Potato.Debug, ctx(inputQueue), "basing new prediction frame from nothing, since we have no frames yet.");
             return { frame = frame, input = nil}
         end
         
@@ -372,14 +442,14 @@ end
 -- TODO rename this function, we dont have a queue head concept anymore, instead, just call it AdjustFrameDelay or something
 -- advance the queue head to target frame and returns frame with delay applied
 function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Frame) : Frame
-    Log("advancing queue head to frame %d.\n", frame)
+    Potato(Potato.Debug, ctx(inputQueue), "advancing queue head to frame %d.", frame)
 
     local expected_frame = inputQueue.first_frame and 0 or FrameInputMap_lastFrame(inputQueue.inputs) + 1
     frame += inputQueue.frame_delay
 
     if expected_frame > frame then
         -- this can occur when the frame delay has dropped since the last time we shoved a frame into the system.  In this case, there's no room on the queue.  Toss it.
-        Log("Dropping input frame %d (expected next frame to be %d).\n", frame, expected_frame)
+        Potato(Potato.Warn, ctx(inputQueue), "Dropping input frame %d (expected next frame to be %d).", frame, expected_frame)
         return frameNull
     end
 
@@ -387,7 +457,7 @@ function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Fram
     if expected_frame < frame then
         local last_frame = FrameInputMap_lastFrame(inputQueue.inputs)
         while expected_frame < frame do
-            Log("Adding padding frame %d to account for change in frame delay.\n", expected_frame)
+            Potato(Potato.Warn, ctx(inputQueue), "Adding padding frame %d to account for change in frame delay.", expected_frame)
             local input : I?
             if last_frame == frameNull then 
                 input = nil
@@ -402,10 +472,10 @@ function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Fram
 end
 
 function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameInput<I>) --, allowOverride : boolean) 
-    Log("adding input frame %d to queue.\n", inout_input.frame)
+    Potato(Potato.Debug, ctx(inputQueue), "adding input frame %d to queue.", inout_input.frame)
 
     -- verify that inputs are passed in sequentially by the user, regardless of frame delay.
-    assert(inputQueue.last_user_added_frame == frameNull or inout_input.frame == inputQueue.last_user_added_frame + 1, 
+    Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or inout_input.frame == inputQueue.last_user_added_frame + 1, 
         string.format("expected input frames to be sequential %d == %d+1", inout_input.frame, inputQueue.last_user_added_frame))
     inputQueue.last_user_added_frame = inout_input.frame
 
@@ -426,7 +496,7 @@ function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameIn
         end
         ]]
 
-        assert(inputQueue.inputs[new_frame] == nil, "expected frame to not exist in queue")
+        Tomato(ctx(inputQueue), inputQueue.inputs[new_frame] == nil, "expected frame to not exist in queue")
         inputQueue.inputs[new_frame] = inout_input
         inputQueue.last_added_frame = new_frame
     end
@@ -496,7 +566,7 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_
     -- reject local input if we've gone too far ahead
     local frames_behind = sync.framecount - sync.last_confirmed_frame
     if sync.framecount >= sync.max_prediction_frames and frames_behind >= sync.max_prediction_frames then
-        Log("Rejecting input from emulator: reached prediction barrier.\n");
+        Log("Rejecting input from emulator: reached prediction barrier.");
         return false
     end
 
@@ -505,7 +575,7 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_
         Sync_SaveCurrentFrame(sync)
     end
 
-    Log("Adding undelayed local frame %d for player %d.\n", sync.framecount, player)
+    Log("Adding undelayed local frame %d for player %d.", sync.framecount, player)
     assert(inout_input.frame == sync.framecount, string.format("expected input frame %d to match current frame %d", inout_input.frame, sync.framecount))
     inout_input.frame = sync.framecount
     InputQueue_AddInput(sync.input_queue[player], inout_input)
@@ -551,7 +621,7 @@ end
 function Sync_AdjustSimulation<T,I>(sync : Sync<T,I>, seek_to : number)
     local framecount = sync.framecount
     local count = sync.framecount - seek_to
-    Log("Catching up\n")
+    Log("Catching up")
     sync.rollingback = true
 
     Sync_LoadFrame(sync, seek_to)
@@ -581,7 +651,7 @@ function Sync_SaveCurrentFrame<T,I>(sync : Sync<T,I>)
     local state = sync.callbacks.SaveGameState(sync.framecount)
     local checksum = "TODO"
     sync.savedstate[sync.framecount] = { state = state, checksum = checksum }
-    Log("Saved frame info %d (checksum: %s).\n", sync.framecount, checksum)
+    Log("Saved frame info %d (checksum: %s).", sync.framecount, checksum)
 end
 
 function Sync_GetSavedFrame<T,I>(sync : Sync<T,I>, frame : Frame) 
@@ -599,7 +669,7 @@ function Sync_CheckSimulationConsistency<T,I>(sync : Sync<T,I>) : Frame
     end
 
     if first_incorrect == frameNull then
-        Log("prediction ok.  proceeding.\n")
+        Log("prediction ok.  proceeding.")
     end
 
     return first_incorrect
@@ -673,7 +743,7 @@ function TimeSync_recommend_frame_wait_duration(timesync : TimeSync) : number
     -- Both clients agree that we're the one ahead.  Split the difference between the two to figure out how many frames too  to sleep for.
     local sleep_frames = math.floor(((radvantage - advantage) / 2) + 0.5)
 
-    Log("sleep frames is %d\n", sleep_frames)
+    Log("sleep frames is %d", sleep_frames)
 
     if sleep_frames < MIN_FRAME_ADVANTAGE then
         return 0
@@ -1046,7 +1116,7 @@ local function UDPProto_UpdateNetworkStats<I>(udpproto : UDPProto<I>)
 
    udpproto.kbps_sent = bps / 1024;
 
-   Log("Network Stats -- Bandwidth: %.2f KBps   Packets Sent: %5d (%.2f pps)   KB Sent: %.2f    UDP Overhead: %.2f %%.\n",
+   Log("Network Stats -- Bandwidth: %.2f KBps   Packets Sent: %5d (%.2f pps)   KB Sent: %.2f    UDP Overhead: %.2f %%.",
        udpproto.kbps_sent,
        udpproto.packets_sent,
        udpproto.packets_sent * 1000 / (now - udpproto.stats_start_time),

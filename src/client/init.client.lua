@@ -28,6 +28,6 @@ end
 --local p = makePotato("hello")
 --print(tostring(p))
 
-local p = {potato = "hello", meow = "meow"}
-printPotato(p)
+--local p = {potato = "hello", meow = "meow"}
+--printPotato(p)
 
