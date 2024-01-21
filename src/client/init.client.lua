@@ -1,5 +1,12 @@
 -- jsut testing some stuff here
+print("TESTING OUTPUT HERE")
 
+
+
+
+
+
+-- POTATO PRINTER
 
 export type Potato = {
     potato: string

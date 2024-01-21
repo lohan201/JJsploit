@@ -23,6 +23,15 @@ local function tablecount(t)
     return count
 end
 
+-- debug helpers that you want to delete 
+local function debug_tablekeystostring(t)
+    local r = ""
+    for k, _ in pairs(t) do
+        r = r .. tostring(k) .. ", "
+    end
+    return "[" .. r .. "]"
+end
+
 
 -- custom logging
 
@@ -416,7 +425,7 @@ function InputQueue_DiscardConfirmedFrames<I>(inputQueue : InputQueue<I>, frame 
     local start = FrameInputMap_firstFrame(inputQueue.inputs)
     if start ~= frameNull and start <= frame then
         for i = start, frame, 1 do
-            table.remove(inputQueue.inputs, i)
+            inputQueue.inputs[i] = nil
         end
     end
     
@@ -591,7 +600,7 @@ function Sync_SetLastConfirmedFrame<T,I>(sync : Sync<T,I>, frame : Frame)
             if fd then
                 local start = FrameInputMap_firstFrame(fd)
                 for i = start, frame, 1 do
-                    table.remove(fd, i)
+                    fd[i] = nil
                 end
             end
         end
@@ -1021,7 +1030,7 @@ local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoin
                 return string.format("UDPProto: player: %d", self.player)
             end
         end,
-        potato_severity = Potato.Info,
+        potato_severity = Potato.Trace,
     }
 
     endpoint.subscribe(function(msg : UDPMsg<I>) 
@@ -1179,6 +1188,22 @@ local function UDPProto_QueueEvent<I>(udpproto : UDPProto<I>, evt : GGPOEvent<I>
     udpproto.event_queue:enqueue(evt)
 end
 
+local function UDPProto_ClearInputsBefore<I>(udpproto : UDPProto<I>, frame : Frame)
+    -- remember, the peer will ack the min frame of all inputs they receive for now so it's OK to clear frames for ALL players
+    for player, data in pairs(udpproto.playerData) do
+        local start = FrameInputMap_firstFrame(data.pending_output)
+        if start ~= frameNull and start <= frame then
+            
+            for i = start, frame, 1 do
+                data.pending_output[i] = nil
+            end
+
+            local keys = debug_tablekeystostring(data.pending_output)
+            Potato(Potato.Debug, ctx(udpproto), "Cleared pending output for player %d from %d to %d, left with keys: %s)", player, start, frame, keys)
+        end
+    end
+end
+
 local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I>) 
 
     local ds = ""
@@ -1241,18 +1266,12 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     end
 
     UDPProto_QueueEvent(udpproto, r)
+
+    UDPProto_ClearInputsBefore(udpproto, msg.ack_frame)
 end
 
 local function UDPProto_OnInputAck<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_InputAck) 
-    -- remember, we ack the min frame of all inputs we received for now
-    for player, data in pairs(udpproto.playerData) do
-        local start = FrameInputMap_firstFrame(data.pending_output)
-        if start ~= frameNull and start <= msg.frame then
-            for i = start, msg.frame, 1 do
-                table.remove(data.pending_output, i)
-            end
-        end
-    end
+    UDPProto_ClearInputsBefore(udpproto, msg.frame)
 end
 
 
