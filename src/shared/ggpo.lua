@@ -55,7 +55,7 @@ local Potato : PotatoFakeEnum = {
 export type PotatoSeverity = number
 export type PotatoVerbosity = number
 
-export type Potato = { potato : (Potato, PotatoVerbosity) -> string }
+export type Potato = { potato : (Potato, PotatoVerbosity) -> string, potato_severity : number }
 
 local function extractFirstLineOfTraceback(traceback : string, linecount_ : number?) : {[number]:string}
     local linecount = linecount_ or 1
@@ -130,11 +130,9 @@ local function potatoformat(severity : PotatoSeverity, pc : PotatoContext?, s : 
     return finals
 end
 
-local potato_severity = Potato.Trace
-
 local potatometatable = {
     __call = function(self, severity : PotatoSeverity, pc : PotatoContext?, s : string, ...)
-        if severity > potato_severity then
+        if pc and severity > pc.context.potato_severity then
             return
         end
         print(potatoformat(severity, pc, s, ...))
@@ -249,7 +247,10 @@ export type GameInput<I> = {
 
     -- set to whatever type best represents your game input. Keep this object small! Maybe use a buffer! https://devforum.roblox.com/t/introducing-luau-buffer-type-beta/2724894
     -- nil represents no input? (i.e. AddLocalInput was never called)
-    input: I?
+    input: I?,
+
+    potato : (GameInput<I>) -> string,
+    potato_severity : number,
 }
 
 function GameInput_new<I>(frame : Frame, input : I?) : GameInput<I>
@@ -259,7 +260,8 @@ function GameInput_new<I>(frame : Frame, input : I?) : GameInput<I>
         input = input,
         potato = function(self : GameInput<I>)
             return string.format("GameInput: frame: %d, input: %s", self.frame, tostring(self.input))
-        end
+        end,
+        potato_severity = Potato.Info,
     }
     return r
 end
@@ -362,6 +364,7 @@ export type InputQueue<I> = {
     inputs : FrameInputMap<I>,
 
     potato : (InputQueue<I>) -> string,
+    potato_severity : number,
 }
 
 function InputQueue_new<I>(player: PlayerHandle, frame_delay : number) : InputQueue<I>
@@ -382,6 +385,7 @@ function InputQueue_new<I>(player: PlayerHandle, frame_delay : number) : InputQu
             return string.format("InputQueue: player: %d, last_user_added_frame: %d, last_added_frame: %d, first_incorrect_frame: %d, last_frame_requested: %d, frame_delay: %d", 
                 self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay)
         end,
+        potato_severity = Potato.Warn,
     }
     return r
 end
@@ -543,6 +547,7 @@ export type Sync<T,I> = {
     input_queue : {[PlayerHandle] : InputQueue<I>},
 
     potato : (Sync<T,I>) -> string,
+    potato_severity : number,
 }
 
 
@@ -564,6 +569,8 @@ function Sync_new<T,I>(player : PlayerHandle, max_prediction_frames: FrameCount,
             return string.format("Sync: player: %d, max_prediction_frames: %d, rollingback: %s, last_confirmed_frame: %d, framecount: %d", 
                 self.player, self.max_prediction_frames, tostring(self.rollingback), self.last_confirmed_frame, self.framecount)
         end,
+
+        potato_severity = Potato.Info,
     }
     return r
 end
@@ -937,6 +944,7 @@ export type UDPProto<I> = {
     --last_recv_time : number,
 
     potato : (UDPProto<I>, PotatoVerbosity) -> string,
+    potato_severity : number,
 }
 
 local function UDPProto_lastSynchronizedFrame<I>(udpproto : UDPProto<I>) : Frame
@@ -1013,7 +1021,7 @@ local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoin
                 return string.format("UDPProto: player: %d", self.player)
             end
         end,
-
+        potato_severity = Potato.Info,
     }
 
     endpoint.subscribe(function(msg : UDPMsg<I>) 
