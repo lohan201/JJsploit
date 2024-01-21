@@ -264,6 +264,8 @@ function MockGame_IsStateSynchronized(mockGame : MockGame)
 end
 
 
+
+
 return function()
     describe("table helpers", function()
         it("isempty", function()
@@ -272,9 +274,9 @@ return function()
             expect(GGPO.isempty({1,2})).to.equal(false)
         end)
         it("tablecount", function()
-            expect(GGPO.count({})).to.equal(0)
-            expect(GGPO.count({1})).to.equal(1)
-            expect(GGPO.count({1,2})).to.equal(2)
+            expect(GGPO.tablecount({})).to.equal(0)
+            expect(GGPO.tablecount({1})).to.equal(1)
+            expect(GGPO.tablecount({1,2})).to.equal(2)
         end)
     end)
     describe("FrameInputMap", function()

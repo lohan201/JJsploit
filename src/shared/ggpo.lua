@@ -121,10 +121,10 @@ local function potatoformat(severity : PotatoSeverity, pc : PotatoContext?, s : 
         finals = finals .. "context: " .. ctxstr .. "\n"
     end
     finals = finals .. "stack: "
-    if #lines > 1 then
+    if tablecount(lines) > 1 then
         finals = finals .. "\n"
     end
-    for i = 0, #lines, 1 do
+    for i = 0, tablecount(lines)-1, 1 do
         finals = finals .. "    " .. lines[i] .. "\n"
     end
     return finals
@@ -267,7 +267,7 @@ end
 export type FrameInputMap<I> = {[Frame] : GameInput<I>}
 
 function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
-    if #msg == 0 then
+    if isempty(msg) then
         return frameNull
     end
 
@@ -281,7 +281,7 @@ function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
 end
 
 function FrameInputMap_firstFrame<I>(msg : FrameInputMap<I>) : Frame
-    if #msg == 0 then
+    if isempty(msg) then
         return frameNull
     end
 
@@ -299,7 +299,7 @@ export type PlayerInputMap<I> = {[PlayerHandle] : GameInput<I>}
 export type PlayerFrameInputMap<I> = {[PlayerHandle] : FrameInputMap<I>}
 
 function PlayerFrameInputMap_firstFrame<I>(msg : PlayerFrameInputMap<I>) : Frame
-    if #msg == 0 then
+    if isempty(msg) then
         return frameNull
     end
 
@@ -467,6 +467,8 @@ function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Fram
 
     local expected_frame = inputQueue.first_frame and 0 or FrameInputMap_lastFrame(inputQueue.inputs) + 1
     frame += inputQueue.frame_delay
+
+    Tomato(ctx(inputQueue), expected_frame >= frameInit, "expected_frame must be >= 0")
 
     if expected_frame > frame then
         -- this can occur when the frame delay has dropped since the last time we shoved a frame into the system.  In this case, there's no room on the queue.  Toss it.
@@ -744,7 +746,7 @@ function TimeSync_advance_frame(timesync : TimeSync, advantage : number, radvant
 end
 
 function TimeSync_recommend_frame_wait_duration(timesync : TimeSync) : number
-    if #timesync.remoteRollingFrameAdvantage == 0 then
+    if isempty(timesync.remoteRollingFrameAdvantage) then
         return 0
     end
 
@@ -1290,8 +1292,8 @@ function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : UDPNetworkStats
 
     local maxQueueLength = 0
     for player, data in pairs(udpproto.playerData) do
-        if #data.pending_output > maxQueueLength then
-            maxQueueLength = #data.pending_output
+        if tablecount(data.pending_output) > maxQueueLength then
+            maxQueueLength = tablecount(data.pending_output)
         end
     end
     
@@ -1357,7 +1359,7 @@ end
 
 local function GGPO_Peer_AddSpectator<T,I,J>(peer : GGPO_Peer<T,I,J>, endpoint: UDPEndpoint<I>)
     error("not implemented")
-    --peer.spectators[#peer.spectators] = UDPProto_new({ player = spectatorHandle, proxy = {}, endpoint = endpoint })
+    --peer.spectators[tablecount(peer.spectators)] = UDPProto_new({ player = spectatorHandle, proxy = {}, endpoint = endpoint })
 end
 
 
