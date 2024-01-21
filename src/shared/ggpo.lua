@@ -527,6 +527,8 @@ export type Sync<T,I> = {
     max_prediction_frames : FrameCount,
     -- TODO rename input_queues
     input_queue : {[PlayerHandle] : InputQueue<I>},
+
+    potato : (Sync<T,I>) -> string,
 }
 
 
@@ -543,6 +545,11 @@ function Sync_new<T,I>(player : PlayerHandle, max_prediction_frames: FrameCount,
 
         -- TODO preallocate players
         input_queue = {},
+
+        potato = function(self : Sync<T,I>)
+            return string.format("Sync: player: %d, max_prediction_frames: %d, rollingback: %s, last_confirmed_frame: %d, framecount: %d", 
+                self.player, self.max_prediction_frames, tostring(self.rollingback), self.last_confirmed_frame, self.framecount)
+        end,
     }
     return r
 end
@@ -572,7 +579,7 @@ end
 
 
 function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_input : GameInput<I>) : boolean
-    assert(inout_input ~= nil, "expected input to not be nil")
+    Tomato(ctx(sync), inout_input ~= nil, "expected input to not be nil")
 
     Sync_LazyAddPlayer(sync, player)
 
@@ -588,8 +595,8 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_
         Sync_SaveCurrentFrame(sync)
     end
 
-    Log("Adding undelayed local frame %d for player %d.", sync.framecount, player)
-    assert(inout_input.frame == sync.framecount, string.format("expected input frame %d to match current frame %d", inout_input.frame, sync.framecount))
+    Potato(Potato.Info, ctx(sync), "Adding undelayed local frame %d for player %d.", sync.framecount, player)
+    Tomato(ctx(sync), inout_input.frame == sync.framecount, string.format("expected input frame %d to match current frame %d", inout_input.frame, sync.framecount))
     inout_input.frame = sync.framecount
     InputQueue_AddInput(sync.input_queue[player], inout_input)
     return true
@@ -634,7 +641,7 @@ end
 function Sync_AdjustSimulation<T,I>(sync : Sync<T,I>, seek_to : number)
     local framecount = sync.framecount
     local count = sync.framecount - seek_to
-    Log("Catching up")
+    Potato(Potato.Debug, ctx(sync), "Catching up")
     sync.rollingback = true
 
     Sync_LoadFrame(sync, seek_to)
@@ -650,12 +657,12 @@ end
 
 function Sync_LoadFrame<T,I>(sync : Sync<T,I>, frame : Frame) 
     if frame == sync.framecount then
-        Log("Skipping NOP.")
+        Potato(Potato.Info, ctx(sync), "Skipping LoadFame %d NOP.", frame)
     end
 
     local state = sync.savedstate[frame]
 
-    Log("Loading frame info %d checksum: %s", frame, state.checksum)
+    Potato(Potato.Info, ctx(sync), "Loading frame info %d checksum: %s", frame, state.checksum)
 
     sync.callbacks.LoadGameState(state.state, frame)
 end
@@ -664,7 +671,7 @@ function Sync_SaveCurrentFrame<T,I>(sync : Sync<T,I>)
     local state = sync.callbacks.SaveGameState(sync.framecount)
     local checksum = "TODO"
     sync.savedstate[sync.framecount] = { state = state, checksum = checksum }
-    Log("Saved frame info %d (checksum: %s).", sync.framecount, checksum)
+    Potato(Potato.Info, ctx(sync), "Saved frame info %d (checksum: %s).", sync.framecount, checksum)
 end
 
 function Sync_GetSavedFrame<T,I>(sync : Sync<T,I>, frame : Frame) 
@@ -682,7 +689,7 @@ function Sync_CheckSimulationConsistency<T,I>(sync : Sync<T,I>) : Frame
     end
 
     if first_incorrect == frameNull then
-        Log("prediction ok.  proceeding.")
+        Potato(Potato.Info, ctx(sync), "prediction ok.  proceeding.")
     end
 
     return first_incorrect
