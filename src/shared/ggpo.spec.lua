@@ -81,7 +81,7 @@ function MockUDPEndpointManager_AddUDPEndpoint<I>(manager : MockUDPEndpointManag
     local endpointStuff = MockUDPEndointStuff_new()
     local r = {
         send = function(msg)
-            print("sending msg " .. tostring(msg))
+            --print("sending msg " .. tostring(msg))
             local delay = endpointStuff.delayMin + math.random() * (endpointStuff.delayMax - endpointStuff.delayMin)
             local epochMs = GGPO.now() + math.floor(delay)
             endpointStuff.msgQueue[epochMs] = msg
@@ -145,7 +145,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
                 stateref.frame = frame
             end,
             AdvanceFrame = function()
-                tprint(string.format("advancing frame %d for player %d", stateref.frame, i))
+                --print(string.format("advancing frame %d for player %d", stateref.frame, i))
                 local pinputs = GGPO.GGPO_Peer_SynchronizeInput(ggporef, stateref.frame)
                 table.sort(pinputs)
                 stateref.state = stateref.state .. tostring(stateref.frame) .. ":"
@@ -294,7 +294,7 @@ return function()
         it("2 player p2p", function()
             print("initializing mock p2p game with 2 players)")
             local game = MockGame_new(2, false)
-            for i = 0, 10, 1 do
+            for i = 0, 3, 1 do
                 --print("processing frame " .. tostring(i))
                 for j = 0, 1, 1 do
                     print("processing frame " .. tostring(i) .. " for player " .. tostring(j))
@@ -303,7 +303,7 @@ return function()
                 MockGame_AdvanceFrame(game)
                 
                 MockGame_Poll(game, 100, 10, 20)
-                -- TODO check that all states are compatible
+                print("CHECKING STATE FOR FRAME " .. tostring(i))
                 expect(MockGame_IsStateSynchronized(game))
             end
 

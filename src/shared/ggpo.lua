@@ -14,27 +14,36 @@ end
 
 -- custom logging
 
-type PotatoSeverityFakeEnum = {
+type PotatoFakeEnum = {
     ASSERT : number,
     Error : number,
     Warn : number,
     Info : number,
     Debug : number,
     Trace : number,
+
+
+    Normal : number,
+    Verbose : number
 }
 
-local Potato : PotatoSeverityFakeEnum = {
+
+local Potato : PotatoFakeEnum = {
     ASSERT = -1,
     Error = 0,
     Warn = 1,
     Info = 2,
     Debug = 3,
     Trace = 4,
+
+    Normal = 0,
+    Verbose = 1,
 }
 
 export type PotatoSeverity = number
+export type PotatoVerbosity = number
 
-export type Potato = { potato : (Potato, PotatoSeverity, PotatoContext) -> string }
+export type Potato = { potato : (Potato, PotatoVerbosity) -> string }
 
 local function extractFirstLineOfTraceback(traceback : string, linecount_ : number?) : {[number]:string}
     local linecount = linecount_ or 1
@@ -60,13 +69,15 @@ end
 
 export type PotatoContext = {
     context : Potato,
-    stackLines : number?
+    verbosity : number,
+    stackLines : number,
 }
 
-function ctx(p : Potato, stackLines : number?) : PotatoContext
+function ctx(p : Potato, verbosity : PotatoVerbosity?, stackLines : number?) : PotatoContext
     return {
         context = p,
-        stackLines = stackLines,
+        verbosity = verbosity or 0,
+        stackLines = stackLines or 1,
     }
 end
 
@@ -74,10 +85,8 @@ local function potatoformat(severity : PotatoSeverity, pc : PotatoContext?, s : 
     local ctxstr = nil
     local stackLines = 1
     if pc ~= nil then
-        ctxstr = pc.context.potato(pc.context, Potato.Trace, pc)
-        if pc.stackLines ~= nil then
-            stackLines = pc.stackLines
-        end
+        ctxstr = pc.context.potato(pc.context, pc.verbosity)
+        stackLines = pc.stackLines
     end
     local lines = extractFirstLineOfTraceback(debug.traceback(), stackLines)
     local msg = s:format(...)
@@ -97,7 +106,7 @@ local function potatoformat(severity : PotatoSeverity, pc : PotatoContext?, s : 
     end
     finals = finals .. msg .. "\n"
     if ctxstr ~= nil then
-        finals = "context: " .. ctxstr .. "\n"
+        finals = finals .. "context: " .. ctxstr .. "\n"
     end
     finals = finals .. "stack: "
     if #lines > 1 then
@@ -901,6 +910,8 @@ export type UDPProto<I> = {
     --shutdown_timeout : number,
     --last_send_time : number,
     --last_recv_time : number,
+
+    potato : (UDPProto<I>, PotatoVerbosity) -> string,
 }
 
 local function UDPProto_lastSynchronizedFrame<I>(udpproto : UDPProto<I>) : Frame
@@ -969,6 +980,15 @@ local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoin
 
         timesync = TimeSync_new(),
 
+        potato = function(self : UDPProto<I>, verbosity : PotatoVerbosity)
+            if verbosity == Potato.Verbose then
+                return string.format("UDPProto: player: %d, lastReceivedFrame: %d, round_trip_time: %d, remote_frame_advantage: %d, local_frame_advantage: %d, lastAddedLocalFrame: %d, packets_sent: %d, bytes_sent: %d, kbps_sent: %d, stats_start_time: %d, next_send_seq: %d, next_recv_seq: %d", 
+                    self.player, self.lastReceivedFrame, self.round_trip_time, self.remote_frame_advantage, self.local_frame_advantage, self.lastAddedLocalFrame, self.packets_sent, self.bytes_sent, self.kbps_sent, self.stats_start_time, self.next_send_seq, self.next_recv_seq)
+            else
+                return string.format("UDPProto: player: %d", self.player)
+            end
+        end,
+
     }
 
     endpoint.subscribe(function(msg : UDPMsg<I>) 
@@ -1011,7 +1031,7 @@ function UDPProto_SendPeerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
     udpproto.playerData[udpproto.player].lastFrame = input.frame
 
     if UDPPROTO_NO_QUEUE_NIL_INPUT and input.input == nil then
-        Log("UDPProto_SendPeerInput: input is nil, no need to queue it")
+        Potato(Potato.Info, ctx(udpproto), "UDPProto_SendPeerInput: input is nil, no need to queue it")
     else
         udpproto.playerData[udpproto.player].pending_output[input.frame] = input
     end
@@ -1020,9 +1040,6 @@ end
 
 
 function UDPProto_SendPendingOutput<I>(udpproto : UDPProto<I>)
-
-    print("UDPProto_SendPendingOutput " .. tostring(udpproto.player))
-
     -- TODO maybe set lastAddedLocalFrame here if server with null inputs
 
     local inputs = {}
@@ -1116,7 +1133,7 @@ local function UDPProto_UpdateNetworkStats<I>(udpproto : UDPProto<I>)
 
    udpproto.kbps_sent = bps / 1024;
 
-   Log("Network Stats -- Bandwidth: %.2f KBps   Packets Sent: %5d (%.2f pps)   KB Sent: %.2f    UDP Overhead: %.2f %%.",
+   Potato(Potato.Info, ctx(udpproto), "Network Stats -- Bandwidth: %.2f KBps   Packets Sent: %5d (%.2f pps)   KB Sent: %.2f    UDP Overhead: %.2f %%.",
        udpproto.kbps_sent,
        udpproto.packets_sent,
        udpproto.packets_sent * 1000 / (now - udpproto.stats_start_time),
@@ -1133,7 +1150,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
 
     local inputs = msg.inputs
     if next(inputs) == nil then
-        Log("UDPProto_OnInput: Received empty msg")
+        Potato(Potato.Warn, ctx(udpproto), "UDPProto_OnInput: Received empty msg")
         return
     end
 
@@ -1148,7 +1165,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
             for frame, input in pairs(data.inputs) do
                 -- TODO check that there is no conflict between input and what's already in pending output
                 if UDPPROTO_NO_QUEUE_NIL_INPUT and input.input == nil then
-                    Log("UDPProto_OnInput: remote input for player %d frame %d is nil, no need to queue it", player, frame)
+                    Potato(Potato.Info, ctx(udpproto), "UDPProto_OnInput: remote input for player %d frame %d is nil, no need to queue it", player, frame)
                 else
                     udpproto.playerData[player].pending_output[frame] = input
                 end
@@ -1162,7 +1179,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     for player, data in pairs(inputs) do
         for i = udpproto.playerData[player].lastFrame+1, data.lastFrame, 1 do
             if inputs[player][i] == nil then
-                Log("did not receive inputs for player %d frame %d assume their inputs are nil", player, i)
+                Potato(Potato.Info, ctx(udpproto), "did not receive inputs for player %d frame %d assume their inputs are nil", player, i)
                 inputs[player][i] = { frame = i, input = nil }
             end
         end
@@ -1221,12 +1238,12 @@ function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>)
     --filter out out-of-order packets
     local skipped = msg.seq - udpproto.next_recv_seq
     if skipped > UDPPROTO_MAX_SEQ_DISTANCE then
-        Log("Dropping out of order packet (seq: %d, last seq: %d)", msg.seq, udpproto.next_recv_seq)
+        Potato(Potato.Warn, ctx(udpproto), "Dropping out of order packet (seq: %d, last seq: %d)", msg.seq, udpproto.next_recv_seq)
         return
     end
 
     udpproto.next_recv_seq = msg.seq;
-    --Log("recv %s", msg)
+    --Potato(Potato.Debug, ctx(udpproto), "recv %s", msg)
 
     if msg.m.t == "Ping" then
         UDPProto_OnPing(udpproto, msg.m)
@@ -1239,7 +1256,7 @@ function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>)
     elseif msg.m.t == "QualityReport" then
         UDPProto_OnQualityReport(udpproto, msg.m)
     else
-        Log("Unknown message type: %s", msg.m.t)
+        Potato(Potato.Info, ctx(udpproto), "Unknown message type: %s", msg.m.t)
     end
 
     -- TODO resume if disconnected
@@ -1394,9 +1411,6 @@ function GGPO_Peer_DoPoll<T,I,J>(peer : GGPO_Peer<T,I,J>)
         -- and takes the min of all those. I don't quite know why it does this at all, doing just one hop here seems sufficient/better. I guess because we might be disconnected to the peer so we rely on relayed information to get the last frame?
         total_min_confirmed = math.min(udp.lastReceivedFrame, total_min_confirmed)
     end
-
-    print("total_min_confirmed" .. tostring(total_min_confirmed))
-
     Sync_SetLastConfirmedFrame(peer.sync, total_min_confirmed)
 
 end
@@ -1425,7 +1439,6 @@ function GGPO_Peer_AddLocalInput<T,I,J>(peer : GGPO_Peer<T,I,J>, inout_input: Ga
         return false
     else
         for _, udp in pairs(peer.udps) do 
-            print("sending input!!! frame: " .. tostring(inout_input.frame) .. " input: " .. tostring(inout_input.input))
             UDPProto_SendPeerInput(udp, inout_input)
         end
     end
