@@ -277,6 +277,15 @@ end
 
 export type FrameInputMap<I> = {[Frame] : GameInput<I>}
 
+
+function FrameInputMap_potato<I>(msg : FrameInputMap<I>) : string
+    local r = ""
+    for frame, input in pairs(msg) do
+        r = r .. string.format("(%d,%s)", frame, tostring(input.input))
+    end
+    return r
+end
+
 function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
     if isempty(msg) then
         return frameNull
@@ -467,7 +476,7 @@ function InputQueue_GetInput<I>(inputQueue : InputQueue<I>, frame : Frame) : Gam
             return inputQueue.inputs[lastFrame]
         else
             Potato(Potato.Debug, ctx(inputQueue), "basing new prediction frame from nothing, since we have no frames yet.");
-            return { frame = frame, input = nil}
+            return GameInput_new(frame, nil)
         end
         
     end
@@ -501,7 +510,7 @@ function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Fram
             else 
                 input = inputQueue.inputs[last_frame].input
             end
-            inputQueue.inputs[expected_frame] = { frame = expected_frame, input = input }
+            inputQueue.inputs[expected_frame] = GameInput_new(expected_frame, input)
             expected_frame += 1
         end
     end
@@ -895,7 +904,7 @@ function UDPMsg_Size<I>(UDPMsg : UDPMsg<I>) : number
     return 0
 end
 
-function UDPMsg_Print<I>(UDPMsg : UDPMsg<I>) : string
+function UDPMsg_potato<I>(UDPMsg : UDPMsg<I>) : string
     if UDPMsg.m.t == "Ping" then
         return string.format("UDPMsg: Ping: time: %d", UDPMsg.m.time)
     elseif UDPMsg.m.t == "Pong" then
@@ -907,10 +916,7 @@ function UDPMsg_Print<I>(UDPMsg : UDPMsg<I>) : string
     elseif UDPMsg.m.t == "Input" then
         local inputs = ""
         for p, i in pairs(UDPMsg.m.inputs) do
-            inputs = inputs .. string.format("player: %d ", p)
-            for f, input in pairs(i.inputs) do
-                inputs = inputs .. string.format("(%d,%s)", f, tostring(input.input))
-            end
+            inputs = inputs .. string.format("player: %d ", p) .. FrameInputMap_potato(i.inputs)
         end
         return string.format("UDPMsg: Input: ack_frame: %d, peerFrame: %d, inputs: \n%s", UDPMsg.m.ack_frame, UDPMsg.m.peerFrame, inputs)
     else
@@ -1277,9 +1283,9 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     --Tomato(ctx(udpproto), inputs[msg.player] ~= nil, "expected to receive inputs for peer") -- (need to add player to subscribe callback to do this)
     for player, data in pairs(inputs) do
         for i = udpproto.playerData[player].lastFrame+1, data.lastFrame, 1 do
-            if inputs[player][i] == nil then
+            if data.inputs[i] == nil then
                 Potato(Potato.Info, ctx(udpproto), "did not receive inputs for player %d frame %d assume their inputs are nil", player, i)
-                inputs[player][i] = { frame = i, input = nil }
+                data.inputs[i] = GameInput_new(i, nil)
             end
         end
     end
@@ -1572,7 +1578,7 @@ return {
     FrameInputMap_lastFrame = FrameInputMap_lastFrame,
     FrameInputMap_firstFrame = FrameInputMap_firstFrame,
 
-    UDPMsg_Print = UDPMsg_Print,
+    UDPMsg_potato = UDPMsg_potato,
 
     -- UDPProto stuff 
     -- exposed for testing

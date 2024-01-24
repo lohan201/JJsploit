@@ -63,7 +63,7 @@ function MockUDPEndpointManager_PollUDP<I>(manager : MockUDPEndpointManager<I>)
             if t <= manager.time then
                 for _, f in pairs(stuff.subscribers) do
                     for _, msg in pairs(msgs) do
-                        print(" sending msg " .. GGPO.UDPMsg_Print(msg) .. " at time " .. tostring(t) .. " current time " .. tostring(manager.time))
+                        print(" sending msg " .. GGPO.UDPMsg_potato(msg) .. " at time " .. tostring(t) .. " current time " .. tostring(manager.time))
                         f(msg)
                     end
                 end
