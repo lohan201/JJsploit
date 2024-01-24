@@ -340,6 +340,7 @@ end
 
 export type UDPEndpoint<I> = {
     send: (UDPMsg<I>) -> (),
+    -- TODO add player # to this callback
     subscribe: ((UDPMsg<I>)->()) -> (),
 }
 
@@ -579,7 +580,7 @@ function Sync_new<T,I>(player : PlayerHandle, max_prediction_frames: FrameCount,
                 self.player, self.max_prediction_frames, tostring(self.rollingback), self.last_confirmed_frame, self.framecount)
         end,
 
-        potato_severity = Potato.Info,
+        potato_severity = Potato.Warn,
     }
     return r
 end
@@ -634,6 +635,12 @@ end
 
 function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_input : GameInput<I>)
     Sync_LazyAddPlayer(sync, player)
+
+    if player == sync.player then
+        if sync.input_queue[player][inout_input.frame] ~= nil then
+            Potato(Potato.Warn, ctx(sync), "Received remote self input for frame %d", inout_input.frame)
+        end
+    end
     InputQueue_AddInput(sync.input_queue[player], inout_input)
 end
 
@@ -884,7 +891,31 @@ export type UDPMsg<I> = {
 }
 
 function UDPMsg_Size<I>(UDPMsg : UDPMsg<I>) : number
+    -- TODO
     return 0
+end
+
+function UDPMsg_Print<I>(UDPMsg : UDPMsg<I>) : string
+    if UDPMsg.m.t == "Ping" then
+        return string.format("UDPMsg: Ping: time: %d", UDPMsg.m.time)
+    elseif UDPMsg.m.t == "Pong" then
+        return string.format("UDPMsg: Pong: time: %d", UDPMsg.m.time)
+    elseif UDPMsg.m.t == "InputAck" then
+        return string.format("UDPMsg: InputAck: frame: %d", UDPMsg.m.frame)
+    elseif UDPMsg.m.t == "QualityReport" then
+        return string.format("UDPMsg: QualityReport: frame_advantage: %d", UDPMsg.m.peer.frame_advantage)
+    elseif UDPMsg.m.t == "Input" then
+        local inputs = ""
+        for p, i in pairs(UDPMsg.m.inputs) do
+            inputs = inputs .. string.format("player: %d ", p)
+            for f, input in pairs(i.inputs) do
+                inputs = inputs .. string.format("(%d,%s)", f, tostring(input.input))
+            end
+        end
+        return string.format("UDPMsg: Input: ack_frame: %d, peerFrame: %d, inputs: \n%s", UDPMsg.m.ack_frame, UDPMsg.m.peerFrame, inputs)
+    else
+        return "UDPMsg: unknown"
+    end
 end
 
 
@@ -1214,7 +1245,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
         end
         ds = ds .. string.format("(%d: %s),", player, fs)
     end
-    Potato(Potato.Info, ctx(udpproto), "Received input packet (player,frame count) %s (peer frame: %d, ack: %d)", ds, msg.peerFrame, msg.ack_frame)
+    Potato(Potato.Info, ctx(udpproto), "Received input packet (player, frame count) %s (peer frame: %d, ack: %d)", ds, msg.peerFrame, msg.ack_frame)
     
 
     local inputs = msg.inputs
@@ -1243,7 +1274,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     end
 
     -- now fill in empty inputs from udpproto.playerData[player].lastFrame+1 to msg.inputs[player].lastFrame because they get omitted for performance if they were nil
-    Tomato(ctx(udpproto), inputs[udpproto.player] ~= nil, "expected to receive inputs for peer")
+    --Tomato(ctx(udpproto), inputs[msg.player] ~= nil, "expected to receive inputs for peer") -- (need to add player to subscribe callback to do this)
     for player, data in pairs(inputs) do
         for i = udpproto.playerData[player].lastFrame+1, data.lastFrame, 1 do
             if inputs[player][i] == nil then
@@ -1540,6 +1571,8 @@ return {
     -- exposed for testing
     FrameInputMap_lastFrame = FrameInputMap_lastFrame,
     FrameInputMap_firstFrame = FrameInputMap_firstFrame,
+
+    UDPMsg_Print = UDPMsg_Print,
 
     -- UDPProto stuff 
     -- exposed for testing

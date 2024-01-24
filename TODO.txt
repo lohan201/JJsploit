@@ -1,11 +1,13 @@
 
 
 ## WIP TODO IGNORE
--utility methods
-  -better logging function, maybe extract callsite from debug.callstack or whatever
-  -proper table counting method to replace #
-  -proper table empty method to replace #/next
-
+DONE-utility methods
+  DONE-better logging function, maybe extract callsite from debug.callstack or whatever
+  DONE-proper table counting method to replace #
+  DONE-proper table empty method to replace #/next
+DONE-MockUDPEndpointManager_AddUDPEndpoint is incorrect
+  -it needs to make a pair of endpoints with matched send/subscribes
+-add player to subscribe callback
 -meed to call Sync_AddRemoteInput somewhere
   -GGPO_Peer_PollUdpProtocolEvents is wrong
 -add logging helpers to easily log tables and stuff etc

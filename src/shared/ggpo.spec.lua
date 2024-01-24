@@ -32,7 +32,7 @@ end
 
 
 export type MockUDPEndpointManager<I> = {
-    endpoints : {[UDPEndpoint<I>] : MockUDPEndpointStuff<I> },
+    endpoints : {[number] : UDPEndpoint<I> },
     time : number,
 }
 
@@ -57,13 +57,13 @@ end
 
 function MockUDPEndpointManager_PollUDP<I>(manager : MockUDPEndpointManager<I>)
     --print("going through endpoints " .. tostring(#manager.endpoints))
-    for endpoint, stuff in pairs(manager.endpoints) do
+    for _, stuff in pairs(manager.endpoints) do
         --print("endpoint " .. tostring(endpoint) .. " stuff " .. tostring(stuff))
         for t, msgs in stuff.msgQueue do
-            --print(" sending msg " .. tostring(msgs) .. " at time " .. tostring(t) .. " current time " .. tostring(manager.time))
             if t <= manager.time then
                 for _, f in pairs(stuff.subscribers) do
                     for _, msg in pairs(msgs) do
+                        print(" sending msg " .. GGPO.UDPMsg_Print(msg) .. " at time " .. tostring(t) .. " current time " .. tostring(manager.time))
                         f(msg)
                     end
                 end
@@ -77,27 +77,45 @@ function array_append<T>(t : {[number] : T}, value : T)
     t[#t] = value
 end
 
-function MockUDPEndpointManager_AddUDPEndpoint<I>(manager : MockUDPEndpointManager<I>) : UDPEndpoint<I>
-    local endpointStuff = MockUDPEndointStuff_new()
-    local r = {
-        send = function(msg)
+
+
+-- creates a pair of endpoints that are connected to each other and adds them to the manager
+local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDPEndpointManager<I>) : { A: UDPEndpoint<I>, B: UDPEndpoint<I> }
+
+    local function makeSendFn<I>(endpointStuff : MockUDPEndpointStuff<I>) : (UDPMsg<I>) -> ()
+        return function(msg : UDPMsg<I>)
             --print("sending msg " .. tostring(msg))
             local delay = endpointStuff.delayMin + math.random() * (endpointStuff.delayMax - endpointStuff.delayMin)
             local epochMs = manager.time + math.floor(delay)
-            -- LOL terrible hack to disambiguate epochMs...
             if endpointStuff.msgQueue[epochMs] == nil then
                 endpointStuff.msgQueue[epochMs] = {}
             end
             array_append(endpointStuff.msgQueue[epochMs], msg)
             table.sort(endpointStuff.msgQueue)
-        end,
-        subscribe = function(f)
-            local id = #endpointStuff.subscribers
-            endpointStuff.subscribers[id] = f
+        end
+    end
+
+    local endpointStuffA = MockUDPEndointStuff_new()
+    local endpointStuffB = MockUDPEndointStuff_new()
+    local rA = {
+        send = makeSendFn(endpointStuffA),
+        subscribe = function(f) 
+            -- subscribe to send events in rB
+            array_append(endpointStuffB.subscribers, f)
         end,
     }
-    manager.endpoints[r] = endpointStuff
-    return r
+    
+    local rB = {
+        send = makeSendFn(endpointStuffB),
+        subscribe = function(f) 
+            -- subscribe to send events in rA
+            array_append(endpointStuffA.subscribers, f)
+        end,
+    }
+
+    array_append(manager.endpoints, endpointStuffA)
+    array_append(manager.endpoints, endpointStuffB)
+    return {A = rA, B = rB}
 end
 
 
@@ -170,24 +188,28 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
         }
     end
 
+
+
+
     if isCars then
         -- create CARS network
         assert(players[GGPO.carsHandle] ~= nil)
         for i = 0, numPlayers-1, 1 do
-            local epcp = MockUDPEndpointManager_AddUDPEndpoint(manager)
-            players[GGPO.carsHandle].endpoints[#players[GGPO.carsHandle].endpoints] = epcp
-            GGPO.GGPO_Peer_AddPeer(players[i].ggpo, GGPO.carsHandle, epcp)
-            local eppc = MockUDPEndpointManager_AddUDPEndpoint(manager)
-            players[i].endpoints[#players[i].endpoints] = eppc
-            GGPO.GGPO_Peer_AddPeer(players[GGPO.carsHandle].ggpo, i, eppc)
+            local pairedeps = MockUDPEndpointManager_AddPairedUDPEndpoints(manager)
+            array_append(players[GGPO.carsHandle].endpoints, pairedeps.A)
+            GGPO.GGPO_Peer_AddPeer(players[i].ggpo, GGPO.carsHandle, pairedeps.A)
+            array_append(players[i].endpoints, pairedeps.B)
+            GGPO.GGPO_Peer_AddPeer(players[GGPO.carsHandle].ggpo, i, pairedeps.B)
         end
     else
         -- create P2P network
         for i = 0, numPlayers-1, 1 do
-            for j = 0, numPlayers-1, 1 do
-                local eppp = MockUDPEndpointManager_AddUDPEndpoint(manager)
-                players[i].endpoints[#players[i].endpoints] = eppp
-                GGPO.GGPO_Peer_AddPeer(players[i].ggpo, j, eppp)
+            for j = i+1, numPlayers-1, 1 do
+                local pairedeps = MockUDPEndpointManager_AddPairedUDPEndpoints(manager)
+                array_append(players[i].endpoints, pairedeps.A)
+                GGPO.GGPO_Peer_AddPeer(players[i].ggpo, j, pairedeps.A)
+                array_append(players[j].endpoints, pairedeps.B)
+                GGPO.GGPO_Peer_AddPeer(players[j].ggpo, i, pairedeps.B)
             end
         end
     end
@@ -324,8 +346,7 @@ return function()
         it("p2p basic", function()
             local manager = MockUDPEndpointManager_new()
             -- p1's endpoint to talk to p2
-            local endpointp1_p2 = MockUDPEndpointManager_AddUDPEndpoint(manager)
-            local endpointp2_p1 = MockUDPEndpointManager_AddUDPEndpoint(manager)
+            local endpoints = MockUDPEndpointManager_AddPairedUDPEndpoints(manager)
 
             local config = GGPO.defaultGameConfig
 
@@ -338,9 +359,9 @@ return function()
             }
 
             local p1 = GGPO.GGPO_Peer_new(config, callbacks, 1)
-            GGPO.GGPO_Peer_AddPeer(p1, 2, endpointp1_p2)
+            GGPO.GGPO_Peer_AddPeer(p1, 2, endpoints.A)
             local p2 = GGPO.GGPO_Peer_new(config, callbacks, 2)
-            GGPO.GGPO_Peer_AddPeer(p2, 1, endpointp2_p1)
+            GGPO.GGPO_Peer_AddPeer(p2, 1, endpoints.B)
 
             -- TODO
         end)
@@ -350,16 +371,23 @@ return function()
         it("2 player p2p", function()
             print("initializing mock p2p game with 2 players)")
             local game = MockGame_new(2, false)
-            for i = 0, 3, 1 do
-                --print("processing frame " .. tostring(i))
+            for i = 0, 1, 1 do
+                
+
+                print("SENDING RANDOM INPUTS ON FRAME " .. tostring(i))
                 for j = 0, 1, 1 do
-                    print("processing frame " .. tostring(i) .. " for player " .. tostring(j))
                     MockGame_PressRandomButtons(game, j)
                 end
+
+                print("ADVANCING FROM FRAME " .. tostring(i))
                 MockGame_AdvanceFrame(game)
                 
+                print("BEGIN FRAME " .. tostring(i+1))
+
+                print("POLLING FOR FRAME " .. tostring(i+1))
                 MockGame_Poll(game, 100, 10, 20)
-                print("CHECKING STATE FOR FRAME " .. tostring(i))
+                
+                print("CHECKING FOR SYNCHRONIZATION")
                 expect(MockGame_IsStateSynchronized(game))
             end
 
