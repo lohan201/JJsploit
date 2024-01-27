@@ -2,6 +2,21 @@
 print("TESTING OUTPUT HERE")
 
 
+local t : { string } = {}
+
+table.insert(t,"hello")
+table.insert(t,"world")
+table.insert(t,"meow")
+table.insert(t,"woof")
+table.insert(t,"moo")
+
+--table.remove(t,2)
+t[2] = nil
+
+for i,v in pairs(t) do
+  print(i,v)
+end
+
 
 
 

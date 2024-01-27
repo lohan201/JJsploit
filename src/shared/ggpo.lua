@@ -168,6 +168,7 @@ export type PlayerHandle = number
 -- CONSTANTS
 local carsHandle = 99999999999
 local spectatorHandle = -1
+local nullHandle = -2
 local frameInit = 0
 local frameNegOne = -1
 local frameNull = -999999999999
@@ -181,18 +182,23 @@ local frameMin = frameNull+1 -- just so we can distinguish between null and min
 
 
 -- GGPOEvent types
+export type GGPOEventType = "synchronized" | "input" | "interrupted" | "resumed" | "timesync" | "disconnected"
 export type GGPOEvent_synchronized = {
+    t: "synchronized",
     player: PlayerHandle,
 }
-export type GGPOEvent_Input<I> = PlayerFrameInputMap<I>
-export type GGPOEvent_interrupted = nil
-export type GGPOEvent_resumed = nil
-export type GGPOEvent_timesync = { framesAhead : FrameCount } -- sleep for this number of frame to adjust for frame advantage
+export type GGPOEvent_Input<I> = { t : "input", input : PlayerFrameInputMap<I> }
+export type GGPOEvent_interrupted = { t: "interrupted" }
+export type GGPOEvent_resumed = { t: "resumed"  }
+export type GGPOEvent_timesync = { t: "timesync", framesAhead : FrameCount } -- sleep for this number of frame to adjust for frame advantage
 -- can we also embed this in the input, perhaps as a serverHandle input
 export type GGPOEvent_disconnected = {
+    t: "disconnected",
     player: PlayerHandle,
 }
-export type GGPOEvent<I> = GGPOEvent_synchronized | GGPOEvent_Input<I> | GGPOEvent_interrupted | GGPOEvent_resumed | GGPOEvent_disconnected
+
+
+export type GGPOEvent<I> = GGPOEvent_synchronized | GGPOEvent_Input<I> | GGPOEvent_interrupted | GGPOEvent_resumed | GGPOEvent_timesync | GGPOEvent_disconnected
   
 
 
@@ -201,8 +207,10 @@ export type GGPOCallbacks<T,I> = {
     SaveGameState: (frame: Frame) -> T,
     LoadGameState: (T, frame: Frame) -> (),
     AdvanceFrame: () -> (),
-    OnPeerEvent: (event: GGPOEvent<I>, player: PlayerHandle) -> (),
-    OnSpectatorEvent: (event: GGPOEvent<I>, spectator: number) -> (),
+
+    -- TODO these should not be GGPOEvent, they should be some new type, because caller cares about a different set of events
+    --OnPeerEvent: (event: GGPOEvent<I>, player: PlayerHandle) -> (),
+    --OnSpectatorEvent: (event: GGPOEvent<I>, spectator: number) -> (),
     --DisconnectPlayer: (PlayerHandle) -> ()
 }
 
@@ -370,7 +378,8 @@ export type UDPNetworkStats = {
 
 -- DONE UNTESTED
 export type InputQueue<I> = {
-    player : PlayerHandle,
+    owner : PlayerHandle, -- the player that owns this InputQueue, for debug purposes only
+    player : PlayerHandle, -- the player this InputQueue represents
     first_frame : boolean,
 
     last_user_added_frame : Frame, -- does not include frame_delay
@@ -386,8 +395,9 @@ export type InputQueue<I> = {
     potato_severity : number,
 }
 
-function InputQueue_new<I>(player: PlayerHandle, frame_delay : number) : InputQueue<I>
+function InputQueue_new<I>(owner : PlayerHandler, player: PlayerHandle, frame_delay : number) : InputQueue<I>
     local r = {
+        owner = owner, 
         player = player,
         first_frame = true,
 
@@ -401,8 +411,8 @@ function InputQueue_new<I>(player: PlayerHandle, frame_delay : number) : InputQu
         inputs = {},
 
         potato = function(self : InputQueue<I>)
-            return string.format("InputQueue: player: %d, last_user_added_frame: %d, last_added_frame: %d, first_incorrect_frame: %d, last_frame_requested: %d, frame_delay: %d", 
-                self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay)
+            return string.format("InputQueue: owner %d, player: %d, last_user_added_frame: %d, last_added_frame: %d, first_incorrect_frame: %d, last_frame_requested: %d, frame_delay: %d", 
+                self.owner, self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay)
         end,
         potato_severity = Potato.Warn,
     }
@@ -596,7 +606,7 @@ end
 
 function Sync_LazyAddPlayer<T,I>(sync : Sync<T,I>, player : PlayerHandle)
     if sync.input_queue[player] == nil then
-        sync.input_queue[player] = InputQueue_new(player, sync.gameConfig.inputDelay)
+        sync.input_queue[player] = InputQueue_new(sync.player, player, sync.gameConfig.inputDelay)
     end
 end
 
@@ -1297,12 +1307,12 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     end
 
     -- TODO I tried to just delete data.lastFrame but that wasn't enough to make the luau typechecker happy :(
-    local r = {}
+    local input = {}
     for player, data in pairs(inputs) do
-        r[player] = data.inputs
+        input[player] = data.inputs
     end
 
-    UDPProto_QueueEvent(udpproto, r)
+    UDPProto_QueueEvent(udpproto, {t = "input", input = input})
 
     UDPProto_ClearInputsBefore(udpproto, msg.ack_frame)
 end
@@ -1468,18 +1478,46 @@ function GGPO_Peer_SynchronizeInput<T,I,J>(peer : GGPO_Peer<T,I,J>, frame : Fram
     return Sync_SynchronizeInputs(peer.sync)
 end
 
+local function GGPO_Peer_OnUdpProtocolEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, event : GGPOEvent<I>, player : PlayerHandle)
+    -- TODO
+    --peer.callbacks.OnPeerEvent(evt, player)
+end
+
+local function GGPO_Peer_OnUdpProtocolPeerEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, event : GGPOEvent<I>, player : PlayerHandle)
+    GGPO_Peer_OnUdpProtocolEvent(peer, event, player)
+    if event.t == "input" then
+        for player, inputs in pairs(event.input) do
+            print(tostring(peer.player) .. " GOT INPUTS FOR PLAYER " .. tostring(player))
+            -- should always arrive in order, but just to be safe
+            -- also in the future sync should be able to handle out of order inputs
+            table.sort(inputs)
+            for frame, input in pairs(inputs) do
+                Sync_AddRemoteInput(peer.sync, player, input)
+            end
+        end
+    end
+
+
+end
+
+
+local function GGPO_Peer_OnUdpProtocolSpectatorEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, event : GGPOEvent<I>, spectator : number)
+    -- TODO
+    --peer.callbacks.OnSpectatorEvent(evt, i)
+end
+
 function GGPO_Peer_PollUdpProtocolEvents<T,I,J>(peer : GGPO_Peer<T,I,J>)
     for player, udp in pairs(peer.udps) do
         local evt = UDPProto_GetEvent(udp)
         while evt ~= nil do
-            peer.callbacks.OnPeerEvent(evt, player)
+            GGPO_Peer_OnUdpProtocolPeerEvent(peer, evt, player)
             evt = UDPProto_GetEvent(udp)
         end
     end
     for i, udp in pairs(peer.spectators) do
         local evt = UDPProto_GetEvent(udp)
         while evt ~= nil do
-            peer.callbacks.OnSpectatorEvent(evt, i)
+            GGPO_Peer_OnUdpProtocolSpectatorEvent(peer, evt, i)
             evt = UDPProto_GetEvent(udp)
         end
     end
@@ -1569,6 +1607,7 @@ return {
     defaultGameConfig = defaultGameConfig,
     carsHandle = carsHandle,
     spectatorHandle = spectatorHandle,
+    nullHandle = nullHandle,
 
     -- helpers exposed for testing
     isempty = isempty,

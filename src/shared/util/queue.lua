@@ -1,3 +1,6 @@
+-- Queue implementation in Lua
+-- more efficient than table.insert/remove which reindexes the table
+
 type QueueImpl<T> = {
     __index: QueueImpl<T>,
     equeue: (self: Queue<T>, x: T) -> (),
