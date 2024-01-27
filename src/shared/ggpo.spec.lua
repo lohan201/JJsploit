@@ -1,6 +1,27 @@
 local GGPO = require(script.Parent.ggpo)
 
--- TESTING STUFF
+
+-- simple deep copy, does not handle metatables or recursive tables!!
+function deep_copy_simple(obj)
+    if type(obj) ~= 'table' then return obj end
+    local res = {}
+    for k, v in pairs(obj) do res[deep_copy_simple(k)] = deep_copy_simple(v) end
+    return res
+end
+
+function deep_copy(obj : any, seen : ({ [any]: {} })?)
+    -- Handle non-tables and previously-seen tables.
+    if type(obj) ~= 'table' then return obj end
+    if seen and seen[obj] then return seen[obj] end
+  
+    -- New table; mark it as seen and copy recursively.
+    local s = seen or ({} :: { [any]: {} })
+    local res = {}
+    s[obj] = res
+    for k, v in pairs(obj) do res[deep_copy(k, s)] = deep_copy(v, s) end
+    return setmetatable(res, getmetatable(obj))
+end
+
 
 export type MockUDPEndpointStuff<I> = {
     --configuration
@@ -109,6 +130,7 @@ local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDP
             -- subscribe to send events in rB
             endpointStuffB.subscriber = f
         end,
+        stuff = endpointStuffA,
     }
     
     local rB = {
@@ -117,6 +139,7 @@ local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDP
             -- subscribe to send events in rA
             endpointStuffA.subscriber = f
         end,
+        stuff = endpointStuffB,
     }
 
     array_append(manager.endpoints, endpointStuffA)
@@ -202,12 +225,12 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
         assert(players[GGPO.carsHandle] ~= nil)
         for i = 0, numPlayers-1, 1 do
             local pairedeps = MockUDPEndpointManager_AddPairedUDPEndpoints(manager)
-            pairedeps.A.sender = GGPO.carsHandle
-            pairedeps.A.receiver = i
+            pairedeps.A.stuff.sender = GGPO.carsHandle
+            pairedeps.A.stuff.receiver = i
             array_append(players[GGPO.carsHandle].endpoints, pairedeps.A)
             GGPO.GGPO_Peer_AddPeer(players[i].ggpo, GGPO.carsHandle, pairedeps.A)
-            pairedeps.B.sender = i
-            pairedeps.B.receiver = GGPO.carsHandle
+            pairedeps.B.stuff.sender = i
+            pairedeps.B.stuff.receiver = GGPO.carsHandle
             array_append(players[i].endpoints, pairedeps.B)
             GGPO.GGPO_Peer_AddPeer(players[GGPO.carsHandle].ggpo, i, pairedeps.B)
         end
@@ -217,12 +240,12 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
             for j = i+1, numPlayers-1, 1 do
                 print("CONNECTING PLAYERS " .. tostring(i) .. " AND " .. tostring(j))
                 local pairedeps = MockUDPEndpointManager_AddPairedUDPEndpoints(manager)
-                pairedeps.A.sender = i
-                pairedeps.A.receiver = j
+                pairedeps.A.stuff.sender = i
+                pairedeps.A.stuff.receiver = j
                 array_append(players[i].endpoints, pairedeps.A)
                 GGPO.GGPO_Peer_AddPeer(players[i].ggpo, j, pairedeps.A)
-                pairedeps.B.sender = j
-                pairedeps.B.receiver = i
+                pairedeps.B.stuff.sender = j
+                pairedeps.B.stuff.receiver = i
                 array_append(players[j].endpoints, pairedeps.B)
                 GGPO.GGPO_Peer_AddPeer(players[j].ggpo, i, pairedeps.B)
             end

@@ -2,6 +2,50 @@
 print("TESTING OUTPUT HERE")
 
 
+
+
+-- reference testing
+--[[
+export type Test = {
+  a: number,
+  b: number
+}
+
+export type TestHolder = {
+  test: Test
+}
+
+local function testref(t : TestHolder) : Test
+  t.test.a = 5
+  t.test.b = 6
+  return t.test
+end
+
+local t = {a = 1, b = 2}
+local th = {test = t}
+
+local t2 = testref(th)
+
+print(t.a)
+print(t.b)
+
+t.a = 10
+t.b = 11
+
+print(t2.a)
+print(t2.b)
+
+print(th.test.a )
+print(th.test.b )
+]]
+
+
+
+
+--[[
+
+
+-- table tests
 local t : { string } = {}
 
 table.insert(t,"hello")
@@ -17,10 +61,10 @@ for i,v in pairs(t) do
   print(i,v)
 end
 
+]]
 
 
-
-
+--[[
 -- POTATO PRINTER
 
 export type Potato = {
@@ -53,3 +97,4 @@ end
 --local p = {potato = "hello", meow = "meow"}
 --printPotato(p)
 
+]]
