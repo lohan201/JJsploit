@@ -11,7 +11,7 @@ export type MockUDPEndpointStuff<I> = {
     -- actual data
     -- key is when to send in epochMs
     msgQueue : { [number] : UDPMsg<I> },
-    subscribers : { [number] : (UDPMsg<I>) -> () },
+    subscriber : ((UDPMsg<I>) -> ())?,
 
     -- for debuggng, may not always be set
     sender : PlayerHandle,
@@ -29,7 +29,7 @@ function MockUDPEndointStuff_new<I>() : MockUDPEndpointStuff<I>
         delayMax = 2,
         dropRate = 0,
         msgQueue = {},
-        subscribers = {},
+        subscriber = nil,
         sender = GGPO.nullHandle,
         receiver = GGPO.nullHandle,
     }
@@ -38,6 +38,7 @@ end
 
 
 export type MockUDPEndpointManager<I> = {
+    -- TODO maybe don't manage this here because yo ucan't get the player mappings, combine with MockGame
     endpoints : {[number] : UDPEndpoint<I> },
     time : number,
 }
@@ -67,9 +68,10 @@ function MockUDPEndpointManager_PollUDP<I>(manager : MockUDPEndpointManager<I>)
         --print("endpoint " .. tostring(endpoint) .. " stuff " .. tostring(stuff))
         for t, msgs in stuff.msgQueue do
             if t <= manager.time then
-                for _, f in pairs(stuff.subscribers) do
+                assert(stuff.subscriber ~= nil, "expected subscriber")
+                if stuff.subscriber ~= nil then
                     for _, msg in pairs(msgs) do
-                        f(msg)
+                        stuff.subscriber(msg)
                     end
                 end
                 stuff.msgQueue[t] = nil
@@ -105,7 +107,7 @@ local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDP
         send = makeSendFn(endpointStuffA),
         subscribe = function(f) 
             -- subscribe to send events in rB
-            array_append(endpointStuffB.subscribers, f)
+            endpointStuffB.subscriber = f
         end,
     }
     
@@ -113,7 +115,7 @@ local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDP
         send = makeSendFn(endpointStuffB),
         subscribe = function(f) 
             -- subscribe to send events in rA
-            array_append(endpointStuffA.subscribers, f)
+            endpointStuffA.subscriber = f
         end,
     }
 
