@@ -534,9 +534,20 @@ end
 function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameInput<I>) --, allowOverride : boolean) 
     Potato(Potato.Debug, ctx(inputQueue), "adding input frame %d to queue.", inout_input.frame)
 
-    -- verify that inputs are passed in sequentially by the user, regardless of frame delay.
-    Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or inout_input.frame == inputQueue.last_user_added_frame + 1, 
-        string.format("expected input frames to be sequential %d == %d+1", inout_input.frame, inputQueue.last_user_added_frame))
+    
+
+    -- verify that inputs are passed in sequentially by the user, regardless of frame delay
+    Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or inout_input.frame <= inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", inout_input.frame, inputQueue.last_user_added_frame))
+    -- TODO use this check once we actually have per player input ack tracking in CARS case (NOTE, you will have to prune the seen input in udpproto before it gets added to the queue, at least that's how OG ggpo does it)
+    --Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or inout_input.frame == inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", inout_input.frame, inputQueue.last_user_added_frame))
+    -- TODO remove this guard once the assert above is enabled
+    if inout_input.frame < inputQueue.last_user_added_frame + 1 then
+        -- expected to happen since we don't prune in udpproto before adding to msg queue
+        Potato(Potato.Info, ctx(inputQueue), "Input frame %d is older than the most recently added frame %d.  Ignoring.", inout_input.frame, inputQueue.last_user_added_frame)
+        return
+    end
+
+
     inputQueue.last_user_added_frame = inout_input.frame
 
     local new_frame = InputQueue_AdvanceQueueHead(inputQueue, inout_input.frame)
