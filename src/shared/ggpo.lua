@@ -187,7 +187,10 @@ export type GGPOEvent_synchronized = {
     t: "synchronized",
     player: PlayerHandle,
 }
+
+-- TODO Rename field to inputs
 export type GGPOEvent_Input<I> = { t : "input", input : PlayerFrameInputMap<I> }
+
 export type GGPOEvent_interrupted = { t: "interrupted" }
 export type GGPOEvent_resumed = { t: "resumed"  }
 export type GGPOEvent_timesync = { t: "timesync", framesAhead : FrameCount } -- sleep for this number of frame to adjust for frame advantage
@@ -357,8 +360,9 @@ end
 
 export type UDPEndpoint<I> = {
     send: (UDPMsg<I>) -> (),
-    -- TODO add player # to this callback
-    subscribe: ((UDPMsg<I>)->()) -> (),
+    -- PlayerHandle is the player that sent the message
+    -- TODO remove this argument, it's just for debugging
+    subscribe: ((UDPMsg<I>, PlayerHandle)->()) -> (),
 }
 
 local uselessUDPEndpoint : UDPEndpoint<any> = {
@@ -538,6 +542,7 @@ function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameIn
     local new_frame = InputQueue_AdvanceQueueHead(inputQueue, inout_input.frame)
 
     -- ug
+    -- also this will break UTs because GameInput references are shared across the network
     inout_input.frame = new_frame
 
     if new_frame ~= frameNull then
@@ -1081,7 +1086,8 @@ local function UDPProto_new<I>(owner : PlayerHandle, player : PlayerHandle, isPr
         potato_severity = Potato.Trace,
     }
 
-    endpoint.subscribe(function(msg : UDPMsg<I>) 
+    endpoint.subscribe(function(msg : UDPMsg<I>, player : PlayerHandle) 
+        assert(player == r.player, "expected player to match")
         -- TODO assert that we aren't in rollback
         UDPProto_OnMsg(r, msg) 
     end)
