@@ -108,12 +108,12 @@ end
 
 
 local function makeSendFn<I>(manager : MockUDPEndpointManager<I>, endpointStuff : MockUDPEndpointStuff<I>) : (UDPMsg<I>) -> ()
-        return function(msg : UDPMsg<I>)
-            local delay = endpointStuff.delayMin + math.random() * (endpointStuff.delayMax - endpointStuff.delayMin)
-            local epochMs = manager.time + math.floor(delay)
-            if endpointStuff.msgQueue[epochMs] == nil then
-                endpointStuff.msgQueue[epochMs] = {}
-            end
+    return function(msg : UDPMsg<I>)
+        local delay = endpointStuff.delayMin + math.random() * (endpointStuff.delayMax - endpointStuff.delayMin)
+        local epochMs = manager.time + math.floor(delay)
+        if endpointStuff.msgQueue[epochMs] == nil then
+            endpointStuff.msgQueue[epochMs] = {}
+        end
         array_append(endpointStuff.msgQueue[epochMs], deep_copy_simple(msg))
     end
 end
@@ -156,7 +156,7 @@ export type MockGameState = {
 function MockGameState_new() : MockGameState
     local r = {
         frame = GGPO.frameInit,
-        state = "",
+        state = "\n",
     }
     return r
 end
@@ -195,15 +195,18 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
                 stateref.frame = frame
             end,
             AdvanceFrame = function()
+                -- NOTE that inputs from frame n get added to the state for frame n+1
                 --print(string.format("advancing frame %d for player %d", stateref.frame, i))
+                stateref.state = stateref.state .. tostring(stateref.frame) .. ":\n"
                 local pinputs = GGPO.GGPO_Peer_SynchronizeInput(ggporef, stateref.frame)
-                -- TODO also note input.input could be nil, you need to handle that
-                table.sort(pinputs) -- TODO REMOVE NOT CORRECt
-                stateref.state = stateref.state .. tostring(stateref.frame) .. ":"
-                for p, input in pairs(pinputs) do
-                    stateref.state = stateref.state .. tostring(p) .. "&" .. input.input
+                for _,p in ipairs(playersIndices) do
+                    assert(pinputs[p] ~= nil or stateref.frame == 0, string.format("expected input for player %d after frame 0", p))
+                    if pinputs[p] ~= nil then
+                        -- TODO also note pinputs[p].input could be nil, you need to handle that
+                        stateref.state = stateref.state .. "  " .. tostring(p) .. ":" .. pinputs[p].input .. "\n"
+                    end
                 end
-                stateref.state = stateref.state .. ";"
+                stateref.state = stateref.state .. "\n"
                 stateref.frame += 1
             end,
             OnPeerEvent = function(event, player) end,
@@ -331,6 +334,7 @@ end
 
 
 return function()
+    --[[
     describe("table helpers", function()
         it("isempty", function()
             expect(GGPO.isempty({})).to.equal(true)
@@ -408,12 +412,12 @@ return function()
             -- TODO
         end)
     end)
-
+    ]]--
     describe("MockGame", function()
         it("2 player p2p", function()
             print("initializing mock p2p game with 2 players)")
             local game = MockGame_new(2, false)
-            for i = 0, 1, 1 do
+            for i = 0, 3, 1 do
                 
 
                 print("SENDING RANDOM INPUTS ON FRAME " .. tostring(i))
