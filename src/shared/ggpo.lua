@@ -965,14 +965,14 @@ export type UDPProto<I> = {
     isProxy : boolean,
 
     -- rift calculation
-    lastReceivedFrame : Frame,
+    lastReceivedFrame : Frame, -- this will always match playerData[player].lastFrame
     round_trip_time : TimeMS,
     -- (according to peer) frame peer - frame self
     remote_frame_advantage : FrameCount,
     -- (according to self) frame self - frame peer
     local_frame_advantage : FrameCount,
 
-    -- right now, this should always match match playerData[player].lastFrame
+    -- right now, this should always match match playerData[owner].lastFrame
     -- however in the future, if we have cars auth input these will not match, playerData[player].lastFrame will be the last input received from cars
     lastAddedLocalFrame : Frame,
 
@@ -1141,11 +1141,11 @@ end
 
 
 function UDPProto_SendPendingOutput<I>(udpproto : UDPProto<I>)
-    -- TODO maybe set lastAddedLocalFrame here if server with null inputs
-
     local inputs = {}
     for player, data in pairs(udpproto.playerData) do
-        inputs[player] = { inputs = data.pending_output, lastFrame = data.lastFrame }
+        if tablecount(data.pending_output) > 0 then
+            inputs[player] = { inputs = data.pending_output, lastFrame = data.lastFrame }
+        end
     end
    UDPProto_SendMsg(udpproto, { t = "Input", ack_frame = udpproto.lastReceivedFrame, peerFrame = udpproto.lastAddedLocalFrame, inputs = inputs })
 end
@@ -1495,16 +1495,29 @@ local function GGPO_Peer_OnUdpProtocolEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, even
     --peer.callbacks.OnPeerEvent(evt, player)
 end
 
+
 local function GGPO_Peer_OnUdpProtocolPeerEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, event : GGPOEvent<I>, player : PlayerHandle)
     GGPO_Peer_OnUdpProtocolEvent(peer, event, player)
     if event.t == "input" then
         for player, inputs in pairs(event.input) do
             print(tostring(peer.player) .. " GOT INPUTS FOR PLAYER " .. tostring(player))
-            -- should always arrive in order, but just to be safe
-            -- also in the future sync should be able to handle out of order inputs
-            table.sort(inputs)
-            for frame, input in pairs(inputs) do
-                Sync_AddRemoteInput(peer.sync, player, input)
+
+
+            -- TODO maybe make this more efficient...
+            -- iterate through the frame in order and add them to sync
+            local first = FrameInputMap_firstFrame(inputs)
+            local last = FrameInputMap_lastFrame(inputs)
+
+            -- you can allow this, but upstream should not be sending inputs for empty players
+            -- TODO replace with a warning, assert for now to catch bugs
+            assert(first ~= frameNull, "expected there to be inputs for player " .. tostring(player))
+
+            if first ~= frameNull then
+                for frame = first, last , 1 do
+                    local input = inputs[frame]
+                    assert(input ~= nil, "expected input to not be nil for frame:" .. tostring(frame))
+                    Sync_AddRemoteInput(peer.sync, player, input)
+                end
             end
         end
     end
