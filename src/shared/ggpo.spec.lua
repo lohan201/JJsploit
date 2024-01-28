@@ -101,6 +101,7 @@ function MockUDPEndpointManager_PollUDP<I>(manager : MockUDPEndpointManager<I>)
     end
 end
 
+-- TODO just replace with table.insert
 function array_append<T>(t : {[number] : T}, value : T)
     table.insert(t, value)
 end
@@ -175,7 +176,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
     local manager = MockUDPEndpointManager_new()
     local players = {}
     local playersIndices = {}
-    for i = 0, numPlayers-1, 1 do
+    for i = 1, numPlayers, 1 do
         playersIndices[i] = i
     end
     if isCars then
@@ -226,7 +227,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
     if isCars then
         -- create CARS network
         assert(players[GGPO.carsHandle] ~= nil)
-        for i = 0, numPlayers-1, 1 do
+        for i = 1, numPlayers, 1 do
             local pairedeps = MockUDPEndpointManager_AddPairedUDPEndpoints(manager)
             pairedeps.A.stuff.sender = GGPO.carsHandle
             pairedeps.A.stuff.receiver = i
@@ -239,8 +240,8 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
         end
     else
         -- create P2P network
-        for i = 0, numPlayers-1, 1 do
-            for j = i+1, numPlayers-1, 1 do
+        for i = 1, numPlayers, 1 do
+            for j = i+1, numPlayers, 1 do
                 print("CONNECTING PLAYERS " .. tostring(i) .. " AND " .. tostring(j))
                 local pairedeps = MockUDPEndpointManager_AddPairedUDPEndpoints(manager)
                 pairedeps.A.stuff.sender = i
@@ -421,7 +422,7 @@ return function()
                 
 
                 print("SENDING RANDOM INPUTS ON FRAME " .. tostring(i))
-                for j = 0, 1, 1 do
+                for j = 1, 2, 1 do
                     MockGame_PressRandomButtons(game, j)
                 end
 
