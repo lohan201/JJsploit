@@ -532,9 +532,7 @@ function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Fram
 end
 
 function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameInput<I>) --, allowOverride : boolean) 
-    Potato(Potato.Debug, ctx(inputQueue), "adding input frame %d to queue.", inout_input.frame)
-
-    
+    Potato(Potato.Info, ctx(inputQueue), "adding input %s for frame %d ", tostring(inout_input.input), inout_input.frame)
 
     -- verify that inputs are passed in sequentially by the user, regardless of frame delay
     Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or inout_input.frame <= inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", inout_input.frame, inputQueue.last_user_added_frame))
@@ -547,16 +545,18 @@ function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameIn
         return
     end
 
-
     inputQueue.last_user_added_frame = inout_input.frame
 
     local new_frame = InputQueue_AdvanceQueueHead(inputQueue, inout_input.frame)
+
+    --Potato(Potato.Warn, ctx(inputQueue), "adding input %s for frame %d ", tostring(inout_input.input), new_frame)
 
     -- ug
     -- also this will break UTs because GameInput references are shared across the network
     inout_input.frame = new_frame
 
     if new_frame ~= frameNull then
+        -- TODO SET FIRST INCORRECT FRAME
         --[[
         if allowOverride then
             if not GameInput_Equals(inputQueue.inputs[new_frame], inout_input) then

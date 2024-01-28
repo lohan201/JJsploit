@@ -299,6 +299,7 @@ end
 function MockGame_AdvanceFrame(mockGame : MockGame)
     for i, player in pairs(mockGame.players) do
         player.ggpo.callbacks.AdvanceFrame()
+        -- TODO call this inside of the AdvanceFrame function above to be more consistent with GGPO API usage 
         GGPO.GGPO_Peer_AdvanceFrame(player.ggpo)
     end
 end

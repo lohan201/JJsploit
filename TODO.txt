@@ -1,18 +1,13 @@
 
 
 ## WIP TODO IGNORE
-DONE-utility methods
-  DONE-better logging function, maybe extract callsite from debug.callstack or whatever
-  DONE-proper table counting method to replace #
-  DONE-proper table empty method to replace #/next
-DONE-MockUDPEndpointManager_AddUDPEndpoint is incorrect
-  -it needs to make a pair of endpoints with matched send/subscribes
--add player to subscribe callback
--meed to call Sync_AddRemoteInput somewhere
-  -GGPO_Peer_PollUdpProtocolEvents is wrong
+-you need to set inputQueue.first_incorrect_frame
+-change Sync_AddInputXYZ to make a copy of input and set the frame in there rather than use inout_input, it can return an output frame
+-- TODO call this inside of the AdvanceFrame function above to be more consistent with GGPO API usage 
+-call GGPO_Peer_DoPoll inside GGPO_Peer_AdvanceFrame
+-add polling timer to udpproto include calling UDPProto_OnLoopPoll
+  IGNORE-also need to call peer::DoPoll every now and then (NO, this is done by the API user, but you still need to call it after ADvanceFrame)
 -add logging helpers to easily log tables and stuff etc
--add polling timer to udpproto include calling GGPO_Peer_OnLoopPoll
--also need to call peer::DoPoll every now and then
 -write tests lol
 -cleanup routine for savedstate in synced
 -add override and consistency assert in InputQueue_AddInput
@@ -47,6 +42,20 @@ V2-allow self to be flagged as authoritative inside sync/inputqueue
 V2-figure out how to handle initial player data
   -prob best just to recommend X frames for syncing initial state and rift
   -send player data as server input on frame 0
+
+
+DONE-summary of weird shit
+  DONE-sometimes input frames get niled by the time they arrive over the fake network, I thin this is due to references everywhere. You need to deep copy before sending over the fake network.
+  DONE/FAIL/LOL-ASDF why does endpointstuff subscribe get mixed up???
+DONE-utility methods
+  DONE-better logging function, maybe extract callsite from debug.callstack or whatever
+  DONE-proper table counting method to replace #
+  DONE-proper table empty method to replace #/next
+DONE-MockUDPEndpointManager_AddUDPEndpoint is incorrect
+  -it needs to make a pair of endpoints with matched send/subscribes
+DONE-add player to subscribe callback
+DONE-meed to call Sync_AddRemoteInput somewhere
+  -GGPO_Peer_PollUdpProtocolEvents is wrong
 DONE-allow OPTIONAL input sending in udproto
   -you still need to set lastAddedLocalFrame because SendPeerInput won't get called in the not sending case
     -INSTEAD just require calling SendPeerInput with nil input
