@@ -1122,12 +1122,13 @@ function UDPProto_SendOwnerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>
     udpproto.lastAddedLocalFrame = input.frame
     -- TODO, don't do this if you want server to override player input
     -- if not udpproto.localInputAuthority
-    udpproto.playerData[udpproto.player].lastFrame = input.frame
+    udpproto.playerData[udpproto.owner].lastFrame = input.frame
 
+    -- add our own input to our pending output
     if UDPPROTO_NO_QUEUE_NIL_INPUT and input.input == nil then
-        Potato(Potato.Info, ctx(udpproto), "UDPProto_SendPeerInput: input is nil, no need to queue it")
+        Potato(Potato.Info, ctx(udpproto), "UDPProto_SendOwnerInput: input is nil, no need to queue it")
     else
-        udpproto.playerData[udpproto.player].pending_output[input.frame] = input
+        udpproto.playerData[udpproto.owner].pending_output[input.frame] = input
     end
     UDPProto_SendPendingOutput(udpproto);
 end
@@ -1463,7 +1464,7 @@ function GGPO_Peer_AddPeer<T,I,J>(peer : GGPO_Peer<T,I,J>, player : PlayerHandle
     end
 
     assert(peer.udps[player] == nil, "expected peer to not already exist")
-    peer.udps[player] = UDPProto_new(player, player == carsHandle, endpoint)
+    peer.udps[player] = UDPProto_new(peer.player, player, peer.player == carsHandle, endpoint)
 end
 
 function GGPO_Peer_GetStats<T,I,J>(peer : GGPO_Peer<T,I,J>) : {[PlayerHandle] : UDPNetworkStats}
