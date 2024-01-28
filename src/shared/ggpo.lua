@@ -950,7 +950,8 @@ end
 export type UDPProto<I> = {
 
     -- id
-    player : PlayerHandle,
+    owner : PlayerHandle, -- the player that owns this UDPProto
+    player : PlayerHandle, -- the player we are connected to
     endpoint : UDPEndpoint<I>,
 
     -- configuration
@@ -1016,15 +1017,15 @@ local function UDPProto_lastSynchronizedFrame<I>(udpproto : UDPProto<I>) : Frame
     return lastFrame
 end
 
-local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoint : UDPEndpoint<I>) : UDPProto<I>
+local function UDPProto_new<I>(owner : PlayerHandle, player : PlayerHandle, isProxy : boolean, endpoint : UDPEndpoint<I>) : UDPProto<I>
 
-    if player == carsHandle then
+    if owner == carsHandle then
         assert(isProxy, "cars must be a proxy")
     end
 
     -- initialize playerData
     local playerData = {}
-    playerData[player] = UDPProto_Player_new()
+    playerData[owner] = UDPProto_Player_new()
 
     -- DELETE
     --for _, proxy in pairs(player.proxy) do
@@ -1032,7 +1033,7 @@ local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoin
     --end
 
     local r = {
-        -- TODO set
+        owner = owner,
         player = player,
         endpoint = endpoint,
 
@@ -1071,10 +1072,10 @@ local function UDPProto_new<I>(player : PlayerHandle, isProxy : boolean, endpoin
 
         potato = function(self : UDPProto<I>, verbosity : PotatoVerbosity)
             if verbosity == Potato.Verbose then
-                return string.format("UDPProto: player: %d, lastReceivedFrame: %d, round_trip_time: %d, remote_frame_advantage: %d, local_frame_advantage: %d, lastAddedLocalFrame: %d, packets_sent: %d, bytes_sent: %d, kbps_sent: %d, stats_start_time: %d, next_send_seq: %d, next_recv_seq: %d", 
-                    self.player, self.lastReceivedFrame, self.round_trip_time, self.remote_frame_advantage, self.local_frame_advantage, self.lastAddedLocalFrame, self.packets_sent, self.bytes_sent, self.kbps_sent, self.stats_start_time, self.next_send_seq, self.next_recv_seq)
+                return string.format("UDPProto: owner %d, player: %d, lastReceivedFrame: %d, round_trip_time: %d, remote_frame_advantage: %d, local_frame_advantage: %d, lastAddedLocalFrame: %d, packets_sent: %d, bytes_sent: %d, kbps_sent: %d, stats_start_time: %d, next_send_seq: %d, next_recv_seq: %d", 
+                    self.owner, self.player, self.lastReceivedFrame, self.round_trip_time, self.remote_frame_advantage, self.local_frame_advantage, self.lastAddedLocalFrame, self.packets_sent, self.bytes_sent, self.kbps_sent, self.stats_start_time, self.next_send_seq, self.next_recv_seq)
             else
-                return string.format("UDPProto: player: %d", self.player)
+                return string.format("UDPProto: owner %d, player: %d", self.owner, self.player)
             end
         end,
         potato_severity = Potato.Trace,
@@ -1098,14 +1099,18 @@ function UDPProto_LazyInitPlayer<I>(udpproto : UDPProto<I>, player : PlayerHandl
     return r
 end
 
--- MUST be called once each frame!!! If there is no input, just call with { frame = frame, input = nil }
-function UDPProto_SendPeerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
 
+-- TODO rename to SendOwnerInput
+-- MUST be called once each frame!!! If there is no input, just call with { frame = frame, input = nil }
+function UDPProto_SendOwnerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
+
+    -- Check to see if this is a good time to adjust for the rift...
     local remoteFrameAdvantages = {}
     for player, data in pairs(udpproto.playerData) do
         -- convert frame advantages to be relative to us, they were reported relative to peer
-        remoteFrameAdvantages[player] = data.frame_advantage - udpproto.remote_frame_advantage
+        remoteFrameAdvantages[player] = udpproto.remote_frame_advantage - data.frame_advantage
     end
+    -- peer never reports its own frame advantage relative to itself since it's always 0
     remoteFrameAdvantages[udpproto.player] = udpproto.remote_frame_advantage
     TimeSync_advance_frame(udpproto.timesync, udpproto.local_frame_advantage, remoteFrameAdvantages)
 
@@ -1576,7 +1581,7 @@ function GGPO_Peer_AddLocalInput<T,I,J>(peer : GGPO_Peer<T,I,J>, inout_input: Ga
         return false
     else
         for _, udp in pairs(peer.udps) do 
-            UDPProto_SendPeerInput(udp, inout_input)
+            UDPProto_SendOwnerInput(udp, inout_input)
         end
     end
 
