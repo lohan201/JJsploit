@@ -92,7 +92,7 @@ function MockUDPEndpointManager_PollUDP<I>(manager : MockUDPEndpointManager<I>)
                 assert(stuff.subscriber ~= nil, "expected subscriber")
                 if stuff.subscriber ~= nil then
                     for _, msg in pairs(msgs) do
-                        stuff.subscriber(msg)
+                        stuff.subscriber(msg, stuff.sender)
                     end
                 end
                 stuff.msgQueue[t] = nil
@@ -107,25 +107,24 @@ end
 
 
 
--- creates a pair of endpoints that are connected to each other and adds them to the manager
-local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDPEndpointManager<I>) : { A: UDPEndpoint<I>, B: UDPEndpoint<I> }
-
-    local function makeSendFn<I>(endpointStuff : MockUDPEndpointStuff<I>) : (UDPMsg<I>) -> ()
+local function makeSendFn<I>(manager : MockUDPEndpointManager<I>, endpointStuff : MockUDPEndpointStuff<I>) : (UDPMsg<I>) -> ()
         return function(msg : UDPMsg<I>)
             local delay = endpointStuff.delayMin + math.random() * (endpointStuff.delayMax - endpointStuff.delayMin)
             local epochMs = manager.time + math.floor(delay)
             if endpointStuff.msgQueue[epochMs] == nil then
                 endpointStuff.msgQueue[epochMs] = {}
             end
-            array_append(endpointStuff.msgQueue[epochMs], msg)
-            table.sort(endpointStuff.msgQueue)
-        end
+        array_append(endpointStuff.msgQueue[epochMs], deep_copy_simple(msg))
     end
+end
+
+-- creates a pair of endpoints that are connected to each other and adds them to the manager
+local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDPEndpointManager<I>) : { A: UDPEndpoint<I>, B: UDPEndpoint<I> }
 
     local endpointStuffA = MockUDPEndointStuff_new()
     local endpointStuffB = MockUDPEndointStuff_new()
     local rA = {
-        send = makeSendFn(endpointStuffA),
+        send = makeSendFn(manager, endpointStuffA),
         subscribe = function(f) 
             -- subscribe to send events in rB
             endpointStuffB.subscriber = f
@@ -134,7 +133,7 @@ local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDP
     }
     
     local rB = {
-        send = makeSendFn(endpointStuffB),
+        send = makeSendFn(manager, endpointStuffB),
         subscribe = function(f) 
             -- subscribe to send events in rA
             endpointStuffA.subscriber = f
@@ -198,7 +197,8 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
             AdvanceFrame = function()
                 --print(string.format("advancing frame %d for player %d", stateref.frame, i))
                 local pinputs = GGPO.GGPO_Peer_SynchronizeInput(ggporef, stateref.frame)
-                table.sort(pinputs)
+                -- TODO also note input.input could be nil, you need to handle that
+                table.sort(pinputs) -- TODO REMOVE NOT CORRECt
                 stateref.state = stateref.state .. tostring(stateref.frame) .. ":"
                 for p, input in pairs(pinputs) do
                     stateref.state = stateref.state .. tostring(p) .. "&" .. input.input
@@ -397,12 +397,12 @@ return function()
             }
 
             local p1 = GGPO.GGPO_Peer_new(config, callbacks, 1)
-            endpoints.A.sender = 1
-            endpoints.A.receiver = 2
+            endpoints.A.stuff.sender = 1
+            endpoints.A.stuff.receiver = 2
             GGPO.GGPO_Peer_AddPeer(p1, 2, endpoints.A)
             local p2 = GGPO.GGPO_Peer_new(config, callbacks, 2)
-            endpoints.B.sender = 2
-            endpoints.B.receiver = 1
+            endpoints.B.stuff.sender = 2
+            endpoints.B.stuff.receiver = 1
             GGPO.GGPO_Peer_AddPeer(p2, 1, endpoints.B)
 
             -- TODO
