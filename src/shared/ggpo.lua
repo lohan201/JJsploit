@@ -399,7 +399,7 @@ export type InputQueue<I> = {
     potato_severity : number,
 }
 
-function InputQueue_new<I>(owner : PlayerHandler, player: PlayerHandle, frame_delay : number) : InputQueue<I>
+function InputQueue_new<I>(owner : PlayerHandle, player: PlayerHandle, frame_delay : number) : InputQueue<I>
     local r = {
         owner = owner, 
         player = player,
@@ -531,35 +531,33 @@ function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Fram
     return frame
 end
 
-function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameInput<I>) --, allowOverride : boolean) 
-    Potato(Potato.Info, ctx(inputQueue), "adding input %s for frame %d ", tostring(inout_input.input), inout_input.frame)
+-- returns nil if the input was not added (due to already being in the queue)
+-- returns the GameInput with frame adjusted for frame delay
+function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, input : GameInput<I>) : GameInput<I>?
+    Potato(Potato.Info, ctx(inputQueue), "adding input %s for frame %d ", tostring(input.input), input.frame)
 
     -- verify that inputs are passed in sequentially by the user, regardless of frame delay
-    Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or inout_input.frame <= inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", inout_input.frame, inputQueue.last_user_added_frame))
+    Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or input.frame <= inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", input.frame, inputQueue.last_user_added_frame))
     -- TODO use this check once we actually have per player input ack tracking in CARS case (NOTE, you will have to prune the seen input in udpproto before it gets added to the queue, at least that's how OG ggpo does it)
-    --Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or inout_input.frame == inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", inout_input.frame, inputQueue.last_user_added_frame))
+    --Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or input.frame == inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", input.frame, inputQueue.last_user_added_frame))
     -- TODO remove this guard once the assert above is enabled
-    if inout_input.frame < inputQueue.last_user_added_frame + 1 then
+    if input.frame < inputQueue.last_user_added_frame + 1 then
         -- expected to happen since we don't prune in udpproto before adding to msg queue
-        Potato(Potato.Info, ctx(inputQueue), "Input frame %d is older than the most recently added frame %d.  Ignoring.", inout_input.frame, inputQueue.last_user_added_frame)
-        return
+        Potato(Potato.Info, ctx(inputQueue), "Input frame %d is older than the most recently added frame %d.  Ignoring.", input.frame, inputQueue.last_user_added_frame)
+        return nil
     end
 
-    inputQueue.last_user_added_frame = inout_input.frame
+    inputQueue.last_user_added_frame = input.frame
 
-    local new_frame = InputQueue_AdvanceQueueHead(inputQueue, inout_input.frame)
+    local new_frame = InputQueue_AdvanceQueueHead(inputQueue, input.frame)
 
-    --Potato(Potato.Warn, ctx(inputQueue), "adding input %s for frame %d ", tostring(inout_input.input), new_frame)
-
-    -- ug
-    -- also this will break UTs because GameInput references are shared across the network
-    inout_input.frame = new_frame
+    --Potato(Potato.Warn, ctx(inputQueue), "adding input %s for frame %d ", tostring(input.input), new_frame)
 
     if new_frame ~= frameNull then
         -- TODO SET FIRST INCORRECT FRAME
         --[[
         if allowOverride then
-            if not GameInput_Equals(inputQueue.inputs[new_frame], inout_input) then
+            if not GameInput_Equals(inputQueue.inputs[new_frame], input) then
                 -- TODO you need fire off some alert to sync that previous correct input got overriden
                 inputQueue.first_incorrect_frame = new_frame
             end
@@ -569,11 +567,13 @@ function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, inout_input : GameIn
         ]]
 
         Tomato(ctx(inputQueue), inputQueue.inputs[new_frame] == nil, "expected frame to not exist in queue")
-        inputQueue.inputs[new_frame] = inout_input
+        inputQueue.inputs[new_frame] = input
         inputQueue.last_added_frame = new_frame
     end
 
     inputQueue.first_frame = false
+
+    return GameInput_new(new_frame, input.input)
 end
    
 
@@ -644,16 +644,19 @@ function Sync_SetLastConfirmedFrame<T,I>(sync : Sync<T,I>, frame : Frame)
 end
 
 
-function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_input : GameInput<I>) : boolean
-    Tomato(ctx(sync), inout_input ~= nil, "expected input to not be nil")
+
+-- returns nil if the input was rejected (either due to being too far ahead, or already in the queue)
+-- returns the GameInput with frame adjusted for frame delay
+function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input : GameInput<I>) : GameInput<I>?
+    Tomato(ctx(sync), input ~= nil, "expected input to not be nil")
 
     Sync_LazyAddPlayer(sync, player)
 
     -- reject local input if we've gone too far ahead
     local frames_behind = sync.framecount - sync.last_confirmed_frame
     if sync.framecount >= sync.max_prediction_frames and frames_behind >= sync.max_prediction_frames then
-        Log("Rejecting input from emulator: reached prediction barrier.");
-        return false
+        Potato(Potato.Warn, ctx(sync), "Rejecting input from emulator: reached prediction barrier.");
+        return nil
     end
 
     if sync.framecount == 0 then
@@ -662,21 +665,19 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_
     end
 
     Potato(Potato.Info, ctx(sync), "Adding undelayed local frame %d for player %d.", sync.framecount, player)
-    Tomato(ctx(sync), inout_input.frame == sync.framecount, string.format("expected input frame %d to match current frame %d", inout_input.frame, sync.framecount))
-    inout_input.frame = sync.framecount
-    InputQueue_AddInput(sync.input_queue[player], inout_input)
-    return true
+    Tomato(ctx(sync), input.frame == sync.framecount, string.format("expected input frame %d to match current frame %d", input.frame, sync.framecount))
+    return InputQueue_AddInput(sync.input_queue[player], input)
 end
 
-function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, inout_input : GameInput<I>)
+function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input : GameInput<I>)
     Sync_LazyAddPlayer(sync, player)
 
     if player == sync.player then
-        if sync.input_queue[player][inout_input.frame] ~= nil then
-            Potato(Potato.Warn, ctx(sync), "Received remote self input for frame %d", inout_input.frame)
+        if sync.input_queue[player][input.frame] ~= nil then
+            Potato(Potato.Warn, ctx(sync), "Received remote self input for frame %d", input.frame)
         end
     end
-    InputQueue_AddInput(sync.input_queue[player], inout_input)
+    InputQueue_AddInput(sync.input_queue[player], input)
 end
 
 
@@ -1596,28 +1597,31 @@ function GGPO_Peer_AdvanceFrame<T,I,J>(peer : GGPO_Peer<T,I,J>)
 end
 
 
--- returns false if input was dropped for whatever reason
+-- returns nil if input was dropped for whatever reason
+-- returns the added input with frame adjusted for frame delay
 -- TODO return an error code instead
-function GGPO_Peer_AddLocalInput<T,I,J>(peer : GGPO_Peer<T,I,J>, inout_input: GameInput<I>) : boolean
+function GGPO_Peer_AddLocalInput<T,I,J>(peer : GGPO_Peer<T,I,J>, input: GameInput<I>) : GameInput<I>?
     assert(not peer.sync.rollingback, "do not add inputs during rollback!")
     
     -- TODO assert no inputs send during synchronization
 
-    if not Sync_AddLocalInput(peer.sync, peer.player, inout_input) then
-        return false
+    local outinput = Sync_AddLocalInput(peer.sync, peer.player, input)
+
+    -- input got rejected due to being too far ahead (common) or already in the queue (uncommon).
+    if not outinput then
+        return nil
     end
 
-    if inout_input.frame == frameNull then
-        Log("Frame dropped due to input delay shenanigans")
-        return false
+    -- input dropped due to frame delay shenanigans
+    if input.frame == frameNull then
+        return nil
     else
         for _, udp in pairs(peer.udps) do 
-            UDPProto_SendOwnerInput(udp, inout_input)
+            UDPProto_SendOwnerInput(udp, input)
         end
     end
 
-    return true
-
+    return outinput
 end
 
 -- Called only as the result of a local decision to disconnect
