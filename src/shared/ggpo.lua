@@ -260,7 +260,7 @@ export type GameConfig<I,J> = {
     inputToString : ((I) -> string)?,
     infoToString : ((J) -> string)?,
 
-    inputEquals : ((I,I) -> boolean),
+    inputEquals : ((I?,I?) -> boolean),
 
     -- TODO
     --prediction : (frame : Frame, pastInputs : FrameInputMap<I>) -> I?,
@@ -563,17 +563,16 @@ function InputQueue_AddInput<I,J>(inputQueue : InputQueue<I,J>, input : GameInpu
     --Potato(Potato.Warn, ctx(inputQueue), "adding input %s for frame %d ", tostring(input.input), new_frame)
 
     if new_frame ~= frameNull then
-        -- TODO SET FIRST INCORRECT FRAME
-        --[[
-        if allowOverride then
-            if not GameInput_Equals(inputQueue.inputs[new_frame], input) then
-                -- TODO you need fire off some alert to sync that previous correct input got overriden
+        -- if we attempted to predict this frame 
+        --OR another peer sent us a frame in the past (TODO peer can only do this if peer == carsHandle)
+        if inputQueue.inputs[new_frame] then
+            if not inputQueue.gameConfig.inputEquals(inputQueue.inputs[new_frame].input, input.input) then
                 inputQueue.first_incorrect_frame = new_frame
             end
         else
             assert(inputQueue.inputs[new_frame] == nil, "expected frame to not exist in queue")
         end
-        ]]
+        
 
         Tomato(ctx(inputQueue), inputQueue.inputs[new_frame] == nil, "expected frame to not exist in queue")
         inputQueue.inputs[new_frame] = input
@@ -707,11 +706,13 @@ function Sync_SynchronizeInputs<T,I,J>(sync : Sync<T,I,J>) : PlayerInputMap<I>
     return r
 end
 
-function Sync_CheckSimulation<T,I,J>(sync : Sync<T,I,J>)
+-- returns the frame we rolled back to (or current frame if no rollback was needed)
+function Sync_CheckSimulation<T,I,J>(sync : Sync<T,I,J>) : Frame
     local seekto = Sync_CheckSimulationConsistency(sync)
     if seekto ~= frameNull then
         Sync_AdjustSimulation(sync, seekto);
     end
+    return seekto
 end
 
 function Sync_IncrementFrame<T,I,J>(sync : Sync<T,I,J>)
@@ -1582,7 +1583,14 @@ function GGPO_Peer_DoPoll<T,I,J>(peer : GGPO_Peer<T,I,J>)
     --if (!_synchronizing) {
 
     -- do rollback if needed
-    Sync_CheckSimulation(peer.sync)
+    local rollback_frame = Sync_CheckSimulation(peer.sync)
+
+    --if peer.udps[carsHandle] then
+        -- we should never rollback past the last received frame from cars (which is authoritative)
+        -- TODO note that subscribe calls are asynchronous so the below may fail if the script has yielded since the last time we polled for events and updated Sync
+        --assert(rollback_frame >= peer.udps[carsHandle].lastReceivedFrame )
+    --end
+
     local current_frame = peer.sync.framecount
     for player, udp in pairs(peer.udps) do
         UDPProto_SetLocalFrameNumber(udp, current_frame)

@@ -1,6 +1,7 @@
 
 
 ## WIP TODO IGNORE
+-- TODO maybe poll here?
 -you need to set inputQueue.first_incorrect_frame
   -need to pass in gameinput equal function
   -you also need to reset first_incorrect_frame (resetPrediction)
