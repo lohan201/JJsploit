@@ -430,7 +430,7 @@ export type InputQueue<I,J> = {
     potato_severity : number,
 }
 
-function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerHandle, player: PlayerHandle, frame_delay : number) : InputQueue<I,J>
+function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerHandle, player: PlayerHandle, currentFrame : FrameCount, frame_delay : FrameCount) : InputQueue<I,J>
     local r = {
         gameConfig = gameConfig,
 
@@ -441,7 +441,10 @@ function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerHandle,
         last_user_added_frame = frameNull,
         last_added_frame = frameNull,
         first_incorrect_frame = frameNull,
-        prediction_frame = frameNull,
+
+        -- InputQueue is initialized with all nil inputs, so it's as if we were predicting up until just before the currentFrame (assumes we have not called GetInput on the currentFrame)
+        prediction_frame = currentFrame == 0 and frameNull or currentFrame-1,
+
         last_frame_requested = frameNull,
 
         frame_delay = frame_delay,
@@ -532,7 +535,7 @@ function InputQueue_GetInput<I,J>(inputQueue : InputQueue<I,J>, frame : Frame) :
     error.  Doing so means that we're just going further down the wrong
     path.  ASSERT this to verify that it's true.
     ]]
-    Tomato(ctx(inputQueue), inputQueue.first_incorrect_frame == frameNull);
+    Tomato(ctx(inputQueue), inputQueue.first_incorrect_frame == frameNull, "expected first_incorrect_frame: %d to be nil", inputQueue.first_incorrect_frame);
 
     inputQueue.last_frame_requested = frame;
 
@@ -560,6 +563,7 @@ end
 function InputQueue_AdvanceQueueHead<I,J>(inputQueue : InputQueue<I,J>, frame : Frame) : Frame
     Potato(Potato.Debug, ctx(inputQueue), "advancing queue head to frame %d.", frame)
 
+    -- NOTE in the future, when players can join mid game, the first input may not be on frame 0
     local expected_frame = inputQueue.first_frame and 0 or FrameInputMap_lastFrame(inputQueue.inputs) + 1
     frame += inputQueue.frame_delay
 
@@ -595,7 +599,9 @@ function InputQueue_AddInput<I,J>(inputQueue : InputQueue<I,J>, input : GameInpu
     Potato(Potato.Info, ctx(inputQueue), "adding input %s for frame %d ", tostring(input.input), input.frame)
 
     -- verify that inputs are passed in sequentially by the user, regardless of frame delay
+    -- NOTE in the future, when players can join mid game, the first input may not be on frame 0, 
     Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or input.frame <= inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", input.frame, inputQueue.last_user_added_frame))
+
     -- TODO use this check once we actually have per player input ack tracking in CARS case (NOTE, you will have to prune the seen input in udpproto before it gets added to the queue, at least that's how OG ggpo does it)
     --Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or input.frame == inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", input.frame, inputQueue.last_user_added_frame))
     -- TODO remove this guard once the assert above is enabled
@@ -612,9 +618,11 @@ function InputQueue_AddInput<I,J>(inputQueue : InputQueue<I,J>, input : GameInpu
     --Potato(Potato.Warn, ctx(inputQueue), "adding input %s for frame %d ", tostring(input.input), new_frame)
 
     if new_frame ~= frameNull then
-        -- if we attempted to predict this frame 
-        --OR another peer sent us a frame in the past (TODO peer can only do this if peer == carsHandle)
-        if ((inputQueue.prediction_frame ~= frameNull) and (new_frame >= inputQueue.prediction_frame)) or inputQueue.inputs[new_frame] then
+        
+        
+        if ((inputQueue.prediction_frame ~= frameNull) and (new_frame >= inputQueue.prediction_frame)) -- if we attempted to predict this frame 
+            or inputQueue.inputs[new_frame] --OR another peer sent us a frame in the past (TODO peer can only do this if peer == carsHandle)
+            then
 
             local basedInput = inputQueue.inputs[new_frame] or InputQueue_GetLastAddedInput(inputQueue)
             if not inputQueue.gameConfig.inputEquals(basedInput.input, input.input) then
@@ -674,14 +682,14 @@ function Sync_new<T,I,J>(gameConfig: GameConfig<I,J>, callbacks: GGPOCallbacks<T
                 self.player, self.max_prediction_frames, tostring(self.rollingback), self.last_confirmed_frame, self.framecount)
         end,
 
-        potato_severity = Potato.Warn,
+        potato_severity = Potato.Trace,
     }
     return r
 end
 
 function Sync_LazyAddPlayer<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle)
     if sync.input_queue[player] == nil then
-        sync.input_queue[player] = InputQueue_new(sync.gameConfig, sync.player, player, sync.gameConfig.inputDelay)
+        sync.input_queue[player] = InputQueue_new(sync.gameConfig, sync.player, player, sync.framecount, sync.gameConfig.inputDelay)
     end
 end
 

@@ -304,7 +304,7 @@ function MockGame_AdvanceFrame(mockGame : MockGame)
     end
 end
 
-function MockGame_IsStateSynchronized(mockGame : MockGame)
+function MockGame_IsStateSynchronized(mockGame : MockGame) : boolean
     
     local last_confirmed_frame = GGPO.frameMax
     for i, player in pairs(mockGame.players) do
@@ -323,7 +323,8 @@ function MockGame_IsStateSynchronized(mockGame : MockGame)
     -- TODO this can be better lol
     for player, state in pairs(playerStates) do
         for otherPlayer, otherState in pairs(playerStates) do
-            if state ~= otherState then
+            if state.state ~= otherState.state then
+                print("MockGame_IsStateSynchronized: player " .. tostring(player) .. " state " .. tostring(state.state) .. " != player " .. tostring(otherPlayer) .. " state " .. tostring(otherState.state))
                 return false
             end
         end
@@ -435,8 +436,9 @@ return function()
                 print("POLLING FOR FRAME " .. tostring(i+1))
                 MockGame_Poll(game, 100, 10, 20)
                 
+                -- NOTE that we should have polled long enough to guarantee states to be synchronized here
                 print("CHECKING FOR SYNCHRONIZATION")
-                expect(MockGame_IsStateSynchronized(game))
+                expect(MockGame_IsStateSynchronized(game)).to.equal(true)
             end
 
         end)
