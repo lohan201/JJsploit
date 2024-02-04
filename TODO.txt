@@ -2,7 +2,11 @@
 
 ## WIP TODO IGNORE
 -you need to set inputQueue.first_incorrect_frame
--change Sync_AddInputXYZ to make a copy of input and set the frame in there rather than use inout_input, it can return an output frame
+  -need to pass in gameinput equal function
+  -you also need to reset first_incorrect_frame (resetPrediction)
+-since you added potato stuff, you probably need custom serialize/deserialize for gameinput 
+  -just do gameinput_serializable without the potato
+DONE-change Sync_AddInputXYZ to make a copy of input and set the frame in there rather than use inout_input, it can return an output frame
 -- TODO call this inside of the AdvanceFrame function above to be more consistent with GGPO API usage 
 -call GGPO_Peer_DoPoll inside GGPO_Peer_AdvanceFrame
 -add polling timer to udpproto include calling UDPProto_OnLoopPoll

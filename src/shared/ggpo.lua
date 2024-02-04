@@ -218,40 +218,6 @@ export type GGPOCallbacks<T,I> = {
 }
 
 
-
-export type GameConfig<I,J> = {
-    inputDelay: FrameCount,
-    maxPredictionFrames: FrameCount,
-
-    -- if nil, then default serialization is used which may be inefficient
-    inputToString : ((I) -> string)?,
-    infoToString : ((J) -> string)?,
-
-    -- TODO
-    --prediction : (frame : Frame, pastInputs : FrameInputMap<I>) -> I?,
-
-    -- TODO eventually for performance
-    --serializeInput : (I,J) -> string,
-    --serializeInfo : (J) -> string,
-}
-
-function prediction_use_last_input<I>(frame : Frame, pastInputs : FrameInputMap<I>) : I?
-    local lastFrame = FrameInputMap_lastFrame(pastInputs)
-    if lastFrame == frameNull then
-        return nil
-    end
-    assert(lastFrame < frame, "expected last frame to be less than prediction frame")
-    return pastInputs[lastFrame].input
-end
-
-local defaultGameConfig = {
-    inputDelay = 0,
-    maxPredictionFrames = 8,
-    inputToString = nil,
-    infoToString = nil,
-    --prediction = prediction_use_last_input,
-}
-
 export type GameInput<I> = {
     -- this is not really needed but conveient to have
     -- the destination frame of this input
@@ -285,6 +251,44 @@ function GameInput_new<I>(frame : Frame, input : I?) : GameInput<I>
     }
     return r
 end
+
+export type GameConfig<I,J> = {
+    inputDelay: FrameCount,
+    maxPredictionFrames: FrameCount,
+
+    -- if nil, then default serialization is used which may be inefficient
+    inputToString : ((I) -> string)?,
+    infoToString : ((J) -> string)?,
+
+    inputEquals : ((I,I) -> boolean),
+
+    -- TODO
+    --prediction : (frame : Frame, pastInputs : FrameInputMap<I>) -> I?,
+
+    -- TODO eventually for performance
+    --serializeInput : (I,J) -> string,
+    --serializeInfo : (J) -> string,
+}
+
+function prediction_use_last_input<I>(frame : Frame, pastInputs : FrameInputMap<I>) : I?
+    local lastFrame = FrameInputMap_lastFrame(pastInputs)
+    if lastFrame == frameNull then
+        return nil
+    end
+    assert(lastFrame < frame, "expected last frame to be less than prediction frame")
+    return pastInputs[lastFrame].input
+end
+
+local defaultGameConfig = {
+    inputDelay = 0,
+    maxPredictionFrames = 8,
+    inputToString = nil,
+    infoToString = nil,
+    inputEquals = function(a : any, b : any) return a == b end,
+    --prediction = prediction_use_last_input,
+}
+
+
 
 export type FrameInputMap<I> = {[Frame] : GameInput<I>}
 
@@ -381,7 +385,10 @@ export type UDPNetworkStats = {
 }
 
 -- DONE UNTESTED
-export type InputQueue<I> = {
+export type InputQueue<I,J> = {
+
+    gameConfig : GameConfig<I,J>,
+
     owner : PlayerHandle, -- the player that owns this InputQueue, for debug purposes only
     player : PlayerHandle, -- the player this InputQueue represents
     first_frame : boolean,
@@ -395,12 +402,14 @@ export type InputQueue<I> = {
 
     inputs : FrameInputMap<I>,
 
-    potato : (InputQueue<I>) -> string,
+    potato : (InputQueue<I,J>) -> string,
     potato_severity : number,
 }
 
-function InputQueue_new<I>(owner : PlayerHandle, player: PlayerHandle, frame_delay : number) : InputQueue<I>
+function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerHandle, player: PlayerHandle, frame_delay : number) : InputQueue<I,J>
     local r = {
+        gameConfig = gameConfig,
+
         owner = owner, 
         player = player,
         first_frame = true,
@@ -414,7 +423,7 @@ function InputQueue_new<I>(owner : PlayerHandle, player: PlayerHandle, frame_del
 
         inputs = {},
 
-        potato = function(self : InputQueue<I>)
+        potato = function(self : InputQueue<I,J>)
             return string.format("InputQueue: owner %d, player: %d, last_user_added_frame: %d, last_added_frame: %d, first_incorrect_frame: %d, last_frame_requested: %d, frame_delay: %d", 
                 self.owner, self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay)
         end,
@@ -423,20 +432,20 @@ function InputQueue_new<I>(owner : PlayerHandle, player: PlayerHandle, frame_del
     return r
 end
 
-function InputQueue_SetFrameDelay<I>(inputQueue : InputQueue<I>, delay : number)
+function InputQueue_SetFrameDelay<I,J>(inputQueue : InputQueue<I,J>, delay : number)
     inputQueue.frame_delay = delay
 end
 
-function InputQueue_GetLastConfirmedFrame<I>(inputQueue : InputQueue<I>) : Frame
+function InputQueue_GetLastConfirmedFrame<I,J>(inputQueue : InputQueue<I,J>) : Frame
     return inputQueue.last_added_frame
 end
 
-function InputQueue_GetFirstIncorrectFrame<I>(inputQueue : InputQueue<I>) : Frame
+function InputQueue_GetFirstIncorrectFrame<I,J>(inputQueue : InputQueue<I,J>) : Frame
     return inputQueue.first_incorrect_frame
 end
 
 -- cleanup confirmed frames, we will never roll back to these
-function InputQueue_DiscardConfirmedFrames<I>(inputQueue : InputQueue<I>, frame : Frame)
+function InputQueue_DiscardConfirmedFrames<I,J>(inputQueue : InputQueue<I,J>, frame : Frame)
     assert(frame >= 0)
 
     -- don't discard frames further back then we've last requested them :O
@@ -456,7 +465,7 @@ function InputQueue_DiscardConfirmedFrames<I>(inputQueue : InputQueue<I>, frame 
 end
 
 
-function InputQueue_GetConfirmedInput<I>(inputQueue : InputQueue<I>, frame : Frame) : GameInput<I>
+function InputQueue_GetConfirmedInput<I,J>(inputQueue : InputQueue<I,J>, frame : Frame) : GameInput<I>
     Tomato(ctx(inputQueue), inputQueue.first_incorrect_frame == frameNull or frame < inputQueue.first_incorrect_frame)
     local fd = inputQueue.inputs[frame]
     Tomato(ctx(inputQueue), fd, "expected frame %d to exist, this probably means the frame has not been confirmed for this player!", frame)
@@ -465,7 +474,7 @@ end
 
 
 
-function InputQueue_GetInput<I>(inputQueue : InputQueue<I>, frame : Frame) : GameInput<I>
+function InputQueue_GetInput<I,J>(inputQueue : InputQueue<I,J>, frame : Frame) : GameInput<I>
     Potato(Potato.Debug, ctx(inputQueue), "requesting input frame %d.", frame);
 
     --[[
@@ -499,7 +508,7 @@ end
 
 -- TODO rename this function, we dont have a queue head concept anymore, instead, just call it AdjustFrameDelay or something
 -- advance the queue head to target frame and returns frame with delay applied
-function InputQueue_AdvanceQueueHead<I>(inputQueue : InputQueue<I>, frame : Frame) : Frame
+function InputQueue_AdvanceQueueHead<I,J>(inputQueue : InputQueue<I,J>, frame : Frame) : Frame
     Potato(Potato.Debug, ctx(inputQueue), "advancing queue head to frame %d.", frame)
 
     local expected_frame = inputQueue.first_frame and 0 or FrameInputMap_lastFrame(inputQueue.inputs) + 1
@@ -533,7 +542,7 @@ end
 
 -- returns nil if the input was not added (due to already being in the queue)
 -- returns the GameInput with frame adjusted for frame delay
-function InputQueue_AddInput<I>(inputQueue : InputQueue<I>, input : GameInput<I>) : GameInput<I>?
+function InputQueue_AddInput<I,J>(inputQueue : InputQueue<I,J>, input : GameInput<I>) : GameInput<I>?
     Potato(Potato.Info, ctx(inputQueue), "adding input %s for frame %d ", tostring(input.input), input.frame)
 
     -- verify that inputs are passed in sequentially by the user, regardless of frame delay
@@ -578,9 +587,9 @@ end
    
 
 -- DONE UNTESTED
-export type Sync<T,I> = {
+export type Sync<T,I,J> = {
     player : PlayerHandle,
-    gameConfig : GameConfig<T,I>,
+    gameConfig : GameConfig<I,J>,
     callbacks : GGPOCallbacks<T,I>,
     -- TODO need cleanup routine (with opt-out for testing)
     savedstate : { [Frame] : { state : T, checksum : string } },
@@ -589,14 +598,14 @@ export type Sync<T,I> = {
     framecount : Frame, -- TODO rename to currentFrame
     max_prediction_frames : FrameCount,
     -- TODO rename input_queues
-    input_queue : {[PlayerHandle] : InputQueue<I>},
+    input_queue : {[PlayerHandle] : InputQueue<I,J>},
 
-    potato : (Sync<T,I>) -> string,
+    potato : (Sync<T,I,J>) -> string,
     potato_severity : number,
 }
 
 
-function Sync_new<T,I>(player : PlayerHandle, max_prediction_frames: FrameCount, gameConfig: GameConfig<T,I>, callbacks: GGPOCallbacks<T,I>) : Sync<T,I>
+function Sync_new<T,I,J>(gameConfig: GameConfig<I,J>, callbacks: GGPOCallbacks<T,I>, player : PlayerHandle, max_prediction_frames: FrameCount) : Sync<T,I,J>
     local r = {
         player = player,
         gameConfig = gameConfig,
@@ -610,7 +619,7 @@ function Sync_new<T,I>(player : PlayerHandle, max_prediction_frames: FrameCount,
         -- TODO preallocate players
         input_queue = {},
 
-        potato = function(self : Sync<T,I>)
+        potato = function(self : Sync<T,I,J>)
             return string.format("Sync: player: %d, max_prediction_frames: %d, rollingback: %s, last_confirmed_frame: %d, framecount: %d", 
                 self.player, self.max_prediction_frames, tostring(self.rollingback), self.last_confirmed_frame, self.framecount)
         end,
@@ -620,13 +629,13 @@ function Sync_new<T,I>(player : PlayerHandle, max_prediction_frames: FrameCount,
     return r
 end
 
-function Sync_LazyAddPlayer<T,I>(sync : Sync<T,I>, player : PlayerHandle)
+function Sync_LazyAddPlayer<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle)
     if sync.input_queue[player] == nil then
-        sync.input_queue[player] = InputQueue_new(sync.player, player, sync.gameConfig.inputDelay)
+        sync.input_queue[player] = InputQueue_new(sync.gameConfig, sync.player, player, sync.gameConfig.inputDelay)
     end
 end
 
-function Sync_SetLastConfirmedFrame<T,I>(sync : Sync<T,I>, frame : Frame)
+function Sync_SetLastConfirmedFrame<T,I,J>(sync : Sync<T,I,J>, frame : Frame)
     sync.last_confirmed_frame = frame
     
     -- we may eventually allow input on frameInit (to transmit per-player data) so use >= here
@@ -647,7 +656,7 @@ end
 
 -- returns nil if the input was rejected (either due to being too far ahead, or already in the queue)
 -- returns the GameInput with frame adjusted for frame delay
-function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input : GameInput<I>) : GameInput<I>?
+function Sync_AddLocalInput<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle, input : GameInput<I>) : GameInput<I>?
     Tomato(ctx(sync), input ~= nil, "expected input to not be nil")
 
     Sync_LazyAddPlayer(sync, player)
@@ -669,7 +678,7 @@ function Sync_AddLocalInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input 
     return InputQueue_AddInput(sync.input_queue[player], input)
 end
 
-function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input : GameInput<I>)
+function Sync_AddRemoteInput<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle, input : GameInput<I>)
     Sync_LazyAddPlayer(sync, player)
 
     if player == sync.player then
@@ -681,7 +690,7 @@ function Sync_AddRemoteInput<T,I>(sync : Sync<T,I>, player : PlayerHandle, input
 end
 
 
-function Sync_GetConfirmedInputs<T,I>(sync : Sync<T,I>, frame: Frame) : PlayerInputMap<I>
+function Sync_GetConfirmedInputs<T,I,J>(sync : Sync<T,I,J>, frame: Frame) : PlayerInputMap<I>
     local r = {}
     for player, iq in pairs(sync.input_queue) do
         r[player] = InputQueue_GetConfirmedInput(iq, frame)
@@ -690,7 +699,7 @@ function Sync_GetConfirmedInputs<T,I>(sync : Sync<T,I>, frame: Frame) : PlayerIn
 end
 
 
-function Sync_SynchronizeInputs<T,I>(sync : Sync<T,I>) : PlayerInputMap<I>
+function Sync_SynchronizeInputs<T,I,J>(sync : Sync<T,I,J>) : PlayerInputMap<I>
     local r = {}
     for player, iq in pairs(sync.input_queue) do
         r[player] = InputQueue_GetInput(iq, sync.framecount)
@@ -698,20 +707,20 @@ function Sync_SynchronizeInputs<T,I>(sync : Sync<T,I>) : PlayerInputMap<I>
     return r
 end
 
-function Sync_CheckSimulation<T,I>(sync : Sync<T,I>)
+function Sync_CheckSimulation<T,I,J>(sync : Sync<T,I,J>)
     local seekto = Sync_CheckSimulationConsistency(sync)
     if seekto ~= frameNull then
         Sync_AdjustSimulation(sync, seekto);
     end
 end
 
-function Sync_IncrementFrame<T,I>(sync : Sync<T,I>)
+function Sync_IncrementFrame<T,I,J>(sync : Sync<T,I,J>)
     sync.framecount += 1
     Sync_SaveCurrentFrame(sync)
 end
 
 
-function Sync_AdjustSimulation<T,I>(sync : Sync<T,I>, seek_to : number)
+function Sync_AdjustSimulation<T,I,J>(sync : Sync<T,I,J>, seek_to : number)
     local framecount = sync.framecount
     local count = sync.framecount - seek_to
     Potato(Potato.Debug, ctx(sync), "Catching up")
@@ -728,7 +737,7 @@ function Sync_AdjustSimulation<T,I>(sync : Sync<T,I>, seek_to : number)
     sync.rollingback = false
 end
 
-function Sync_LoadFrame<T,I>(sync : Sync<T,I>, frame : Frame) 
+function Sync_LoadFrame<T,I,J>(sync : Sync<T,I,J>, frame : Frame) 
     if frame == sync.framecount then
         Potato(Potato.Info, ctx(sync), "Skipping LoadFame %d NOP.", frame)
     end
@@ -740,19 +749,19 @@ function Sync_LoadFrame<T,I>(sync : Sync<T,I>, frame : Frame)
     sync.callbacks.LoadGameState(state.state, frame)
 end
 
-function Sync_SaveCurrentFrame<T,I>(sync : Sync<T,I>)
+function Sync_SaveCurrentFrame<T,I,J>(sync : Sync<T,I,J>)
     local state = sync.callbacks.SaveGameState(sync.framecount)
     local checksum = "TODO"
     sync.savedstate[sync.framecount] = { state = state, checksum = checksum }
     Potato(Potato.Info, ctx(sync), "Saved frame info %d (checksum: %s).", sync.framecount, checksum)
 end
 
-function Sync_GetSavedFrame<T,I>(sync : Sync<T,I>, frame : Frame) 
+function Sync_GetSavedFrame<T,I,J>(sync : Sync<T,I,J>, frame : Frame) 
     return sync.savedstate[frame]
 end
 
 
-function Sync_CheckSimulationConsistency<T,I>(sync : Sync<T,I>) : Frame
+function Sync_CheckSimulationConsistency<T,I,J>(sync : Sync<T,I,J>) : Frame
     local first_incorrect = frameNull
     for player, iq in pairs(sync.input_queue) do
         local incorrect = InputQueue_GetFirstIncorrectFrame(iq)
@@ -768,7 +777,7 @@ function Sync_CheckSimulationConsistency<T,I>(sync : Sync<T,I>) : Frame
     return first_incorrect
 end
 
-function Sync_SetFrameDelay<T,I>(sync : Sync<T,I>, player : PlayerHandle, delay : FrameCount)
+function Sync_SetFrameDelay<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle, delay : FrameCount)
     Sync_LazyAddPlayer(sync, player)
     sync.input_queue[player].frame_delay = delay
 end
@@ -1442,7 +1451,7 @@ export type GGPO_Peer<T,I,J> = {
     
     gameConfig : GameConfig<I,J>,
     callbacks : GGPOCallbacks<T,I>,
-    sync : Sync<T,I>,
+    sync : Sync<T,I,J>,
     udps : { [PlayerHandle] : UDPProto<I> },
     spectators : { [number] : UDPProto<I> },
     player : PlayerHandle,
@@ -1453,7 +1462,7 @@ function GGPO_Peer_new<T,I,J>(gameConfig : GameConfig<I,J>, callbacks : GGPOCall
     local r = {
         gameConfig = gameConfig,
         callbacks = callbacks,
-        sync = Sync_new(player, gameConfig.maxPredictionFrames, gameConfig, callbacks),
+        sync = Sync_new(gameConfig, callbacks, player, gameConfig.maxPredictionFrames),
         udps = {},
         spectators = {},
         player = player,
