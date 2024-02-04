@@ -192,6 +192,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
                 return stateref.state
             end,
             LoadGameState = function(state, frame) 
+                print("loading state " .. tostring(state) .. " frame " .. tostring(frame))
                 stateref.state = state
                 stateref.frame = frame
             end,
@@ -209,6 +210,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
                 end
                 stateref.state = stateref.state .. "\n"
                 stateref.frame += 1
+                GGPO.GGPO_Peer_AdvanceFrame(ggporef, stateref.frame)
             end,
             OnPeerEvent = function(event, player) end,
             OnSpectatorEvent = function(event, spectator) end,
@@ -299,8 +301,6 @@ end
 function MockGame_AdvanceFrame(mockGame : MockGame)
     for i, player in pairs(mockGame.players) do
         player.ggpo.callbacks.AdvanceFrame()
-        -- TODO call this inside of the AdvanceFrame function above to be more consistent with GGPO API usage 
-        GGPO.GGPO_Peer_AdvanceFrame(player.ggpo)
     end
 end
 
