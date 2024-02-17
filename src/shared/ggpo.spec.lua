@@ -386,69 +386,6 @@ return function()
         end)
     end)
 
-
-    -- DELETE this doesn't do anything that MockGame doesn't already do better
-    --[[
-    describe("basic", function()
-        it("p2p basic", function()
-            local manager = MockUDPEndpointManager_new()
-            -- p1's endpoint to talk to p2
-            local endpoints = MockUDPEndpointManager_AddPairedUDPEndpoints(manager)
-
-            local config = GGPO.defaultGameConfig
-
-            local makeCallbacks = function(ggporef)
-                local state = ""
-                local frame = ""
-                return {
-                    SaveGameState = function(saveFrame) 
-                        assert(frame == saveFrame)
-                        return state
-                    end,
-                    LoadGameState = function(s, loadFrame) 
-                        state = s
-                        frame = loadFrame
-                    end,
-                    AdvanceFrame = function() 
-                        local pinputs = GGPO.GGPO_Peer_SynchronizeInput(ggporef, frame)
-                        -- TODO set state to inputs
-                        GGPO.GGPO_Peer_AdvanceFrame(ggporef, frame)
-                    end,
-                    OnPeerEvent = function(event, player) end,
-                    OnSpectatorEvent = function(event, spectator) end,
-                }
-            end
-
-            local p1ggpo
-            p1ggpo = GGPO.GGPO_Peer_new(config, makeCallbacks(p1ggpo), 1)
-            endpoints.A.stuff.sender = 1
-            endpoints.A.stuff.receiver = 2
-            GGPO.GGPO_Peer_AddPeer(p1ggpo, 2, endpoints.A)
-            local p2ggpo 
-            p2ggpo = GGPO.GGPO_Peer_new(config, makeCallbacks(p2ggpo), 2)
-            endpoints.B.stuff.sender = 2
-            endpoints.B.stuff.receiver = 1
-            GGPO.GGPO_Peer_AddPeer(p2ggpo, 1, endpoints.B)
-
-            -- go to frame 1
-            p1ggpo.callbacks.AdvanceFrame()
-            p2ggpo.callbacks.AdvanceFrame()
-
-            -- press some buttons
-            local p1f1input = GGPO.GameInput_new(1, "meow")
-            local p2f1input = GGPO.GameInput_new(1, "moo")
-            GGPO.GGPO_Peer_AddLocalInput(p1ggpo, p1f1input)
-            GGPO.GGPO_Peer_AddLocalInput(p2ggpo, p2f1input)
-
-            -- synchronize
-            MockUDPEndpointManager_SetTime(manager, manager.time + 100)
-            MockUDPEndpointManager_PollUDP(manager)
-            GGPO.GGPO_Peer_DoPoll(p1ggpo)
-            GGPO.GGPO_Peer_DoPoll(p2ggpo)
-        end)
-    end)
-    ]]
-
     describe("MockGame", function()
         it("2 player p2p basic", function()
             local numPlayers = 2
