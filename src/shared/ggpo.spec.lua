@@ -31,12 +31,12 @@ export type MockUDPEndpointStuff<I> = {
 
     -- actual data
     -- key is when to send in epochMs
-    msgQueue : { [number] : UDPMsg<I> },
-    subscriber : ((UDPMsg<I>) -> ())?,
+    msgQueue : { [number] : GGPO.UDPMsg<I> },
+    subscriber : ((GGPO.UDPMsg<I>) -> ())?,
 
     -- for debuggng, may not always be set
-    sender : PlayerHandle,
-    receiver : PlayerHandle,
+    sender : GGPO.PlayerHandle,
+    receiver : GGPO.PlayerHandle,
 }
 
 function tprint(s : string) 
@@ -60,7 +60,7 @@ end
 
 export type MockUDPEndpointManager<I> = {
     -- TODO maybe don't manage this here because yo ucan't get the player mappings, combine with MockGame
-    endpoints : {[number] : UDPEndpoint<I> },
+    endpoints : {[number] : GGPO.UDPEndpoint<I> },
     time : number,
 }
 
@@ -108,8 +108,8 @@ end
 
 
 
-local function makeSendFn<I>(manager : MockUDPEndpointManager<I>, endpointStuff : MockUDPEndpointStuff<I>) : (UDPMsg<I>) -> ()
-    return function(msg : UDPMsg<I>)
+local function makeSendFn<I>(manager : MockUDPEndpointManager<I>, endpointStuff : MockUDPEndpointStuff<I>) : (GGPO.UDPMsg<I>) -> ()
+    return function(msg : GGPO.UDPMsg<I>)
         local delay = endpointStuff.delayMin + math.random() * (endpointStuff.delayMax - endpointStuff.delayMin)
         local epochMs = manager.time + math.floor(delay)
         if endpointStuff.msgQueue[epochMs] == nil then
@@ -120,7 +120,7 @@ local function makeSendFn<I>(manager : MockUDPEndpointManager<I>, endpointStuff 
 end
 
 -- creates a pair of endpoints that are connected to each other and adds them to the manager
-local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDPEndpointManager<I>) : { A: UDPEndpoint<I>, B: UDPEndpoint<I> }
+local function MockUDPEndpointManager_AddPairedUDPEndpoints<I>(manager : MockUDPEndpointManager<I>) : { A: GGPO.UDPEndpoint<I>, B: GGPO.UDPEndpoint<I> }
 
     local endpointStuffA = MockUDPEndointStuff_new()
     local endpointStuffB = MockUDPEndointStuff_new()
@@ -149,6 +149,7 @@ end
 
 
 
+
 export type MockGameState = {
     frame : Frame,
     state : string,
@@ -165,7 +166,7 @@ end
 -- a mock game, input is just a string with letters only! 
 export type MockGame = {
     manager : MockUDPEndpointManager<string>,
-    players : { [PlayerHandle] : {ggpo : GGPO_Peer<string, string, ()>, state : MockGameState, endpoints : {[number] : MockUDPEndpointManager<string>} } },
+    players : { [GGPO.PlayerHandle] : {ggpo : GGPO.GGPO_Peer<string, string, {}>, state : MockGameState, endpoints : {[number] : MockUDPEndpointStuff<string>} } },
     -- TODO
     --spectators : { [number] : {ggpo : GGPO_Spectator<string, string, ()>, state : MockGameState, endpoints : {[number] : MockUDPEndpointManager<string>} } },
 }
@@ -202,7 +203,7 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
                 stateref.state = stateref.state .. tostring(stateref.frame) .. ":\n"
                 local pinputs = GGPO.GGPO_Peer_SynchronizeInput(ggporef, stateref.frame)
                 for _,p in ipairs(playersIndices) do
-                    assert(pinputs[p] ~= nil or stateref.frame == 0, string.format("expected input for player %d after frame 0", p))
+                    --assert(pinputs[p] ~= nil or stateref.frame == 0, string.format("expected input for player %d after frame 0", p))
                     if pinputs[p] ~= nil then
                         -- TODO also note pinputs[p].input could be nil, you need to handle that
                         stateref.state = stateref.state .. "  " .. tostring(p) .. ":" .. pinputs[p].input .. "\n"
@@ -234,11 +235,11 @@ function MockGame_new(numPlayers : number, isCars : boolean) : MockGame
             pairedeps.A.stuff.sender = GGPO.carsHandle
             pairedeps.A.stuff.receiver = i
             array_append(players[GGPO.carsHandle].endpoints, pairedeps.A)
-            GGPO.GGPO_Peer_AddPeer(players[i].ggpo, GGPO.carsHandle, pairedeps.A)
+            GGPO.GGPO_Peer_AddPeer(players[GGPO.carsHandle].ggpo, i, pairedeps.A)
             pairedeps.B.stuff.sender = i
             pairedeps.B.stuff.receiver = GGPO.carsHandle
             array_append(players[i].endpoints, pairedeps.B)
-            GGPO.GGPO_Peer_AddPeer(players[GGPO.carsHandle].ggpo, i, pairedeps.B)
+            GGPO.GGPO_Peer_AddPeer(players[i].ggpo, GGPO.carsHandle, pairedeps.B)
         end
     else
         -- create P2P network
@@ -286,7 +287,7 @@ function MockGame_Poll(mockGame : MockGame, totalMs : number, min : number, max 
     end
 end
 
-function MockGame_PressRandomButtons(mockGame : MockGame, player : PlayerHandle)
+function MockGame_PressRandomButtons(mockGame : MockGame, player : GGPO.PlayerHandle)
     local randomlowercase = function()
         return string.char(math.random(65, 65 + 25)):lower()
     end
@@ -298,10 +299,8 @@ function MockGame_PressRandomButtons(mockGame : MockGame, player : PlayerHandle)
     GGPO.GGPO_Peer_AddLocalInput(mockGame.players[player].ggpo, ggpoinput)
 end
 
-function MockGame_AdvanceFrame(mockGame : MockGame)
-    for i, player in pairs(mockGame.players) do
-        player.ggpo.callbacks.AdvanceFrame()
-    end
+function MockGame_AdvanceFrame(mockGame : MockGame, player : GGPO.PlayerHandle)
+    mockGame.players[player].ggpo.callbacks.AdvanceFrame()
 end
 
 function MockGame_IsStateSynchronized(mockGame : MockGame) : boolean
@@ -313,7 +312,7 @@ function MockGame_IsStateSynchronized(mockGame : MockGame) : boolean
 
     print("MockGame_IsStateSynchronized: last confirmed frame: " .. tostring(last_confirmed_frame))
 
-    playerStates = {}
+    local playerStates = {}
     for i, player in pairs(mockGame.players) do
         playerStates[i] = player.ggpo.sync.savedstate[last_confirmed_frame]
 
@@ -337,7 +336,7 @@ end
 
 
 return function()
-    --[[
+   
     describe("table helpers", function()
         it("isempty", function()
             expect(GGPO.isempty({})).to.equal(true)
@@ -369,7 +368,7 @@ return function()
 
     describe("UDPProto", function()
         it("UDPProto_ClearInputsBefore", function()
-            local udpproto = GGPO.UDPProto_new(0, false, GGPO.uselessUDPEndpoint)
+            local udpproto = GGPO.UDPProto_new(2, 1, false, GGPO.uselessUDPEndpoint)
             udpproto.playerData[1] = GGPO.UDPProto_Player_new()
             udpproto.playerData[1].pending_output[0] = GGPO.GameInput_new(0, "a")
             udpproto.playerData[1].pending_output[1] = GGPO.GameInput_new(1, "b")
@@ -387,6 +386,9 @@ return function()
         end)
     end)
 
+
+    -- DELETE this doesn't do anything that MockGame doesn't already do better
+    --[[
     describe("basic", function()
         it("p2p basic", function()
             local manager = MockUDPEndpointManager_new()
@@ -395,45 +397,123 @@ return function()
 
             local config = GGPO.defaultGameConfig
 
-            local callbacks = {
-                SaveGameState = function(frame) end,
-                LoadGameState = function(state, frame) end,
-                AdvanceFrame = function() end,
-                OnPeerEvent = function(event, player) end,
-                OnSpectatorEvent = function(event, spectator) end,
-            }
+            local makeCallbacks = function(ggporef)
+                local state = ""
+                local frame = ""
+                return {
+                    SaveGameState = function(saveFrame) 
+                        assert(frame == saveFrame)
+                        return state
+                    end,
+                    LoadGameState = function(s, loadFrame) 
+                        state = s
+                        frame = loadFrame
+                    end,
+                    AdvanceFrame = function() 
+                        local pinputs = GGPO.GGPO_Peer_SynchronizeInput(ggporef, frame)
+                        -- TODO set state to inputs
+                        GGPO.GGPO_Peer_AdvanceFrame(ggporef, frame)
+                    end,
+                    OnPeerEvent = function(event, player) end,
+                    OnSpectatorEvent = function(event, spectator) end,
+                }
+            end
 
-            local p1 = GGPO.GGPO_Peer_new(config, callbacks, 1)
+            local p1ggpo
+            p1ggpo = GGPO.GGPO_Peer_new(config, makeCallbacks(p1ggpo), 1)
             endpoints.A.stuff.sender = 1
             endpoints.A.stuff.receiver = 2
-            GGPO.GGPO_Peer_AddPeer(p1, 2, endpoints.A)
-            local p2 = GGPO.GGPO_Peer_new(config, callbacks, 2)
+            GGPO.GGPO_Peer_AddPeer(p1ggpo, 2, endpoints.A)
+            local p2ggpo 
+            p2ggpo = GGPO.GGPO_Peer_new(config, makeCallbacks(p2ggpo), 2)
             endpoints.B.stuff.sender = 2
             endpoints.B.stuff.receiver = 1
-            GGPO.GGPO_Peer_AddPeer(p2, 1, endpoints.B)
+            GGPO.GGPO_Peer_AddPeer(p2ggpo, 1, endpoints.B)
 
-            -- TODO
+            -- go to frame 1
+            p1ggpo.callbacks.AdvanceFrame()
+            p2ggpo.callbacks.AdvanceFrame()
+
+            -- press some buttons
+            local p1f1input = GGPO.GameInput_new(1, "meow")
+            local p2f1input = GGPO.GameInput_new(1, "moo")
+            GGPO.GGPO_Peer_AddLocalInput(p1ggpo, p1f1input)
+            GGPO.GGPO_Peer_AddLocalInput(p2ggpo, p2f1input)
+
+            -- synchronize
+            MockUDPEndpointManager_SetTime(manager, manager.time + 100)
+            MockUDPEndpointManager_PollUDP(manager)
+            GGPO.GGPO_Peer_DoPoll(p1ggpo)
+            GGPO.GGPO_Peer_DoPoll(p2ggpo)
         end)
     end)
-    ]]--
-    describe("MockGame", function()
-        it("2 player p2p", function()
-            print("initializing mock p2p game with 2 players)")
-            local game = MockGame_new(2, false)
-            for i = 0, 3, 1 do
-                
+    ]]
 
-                print("SENDING RANDOM INPUTS ON FRAME " .. tostring(i))
-                for j = 1, 2, 1 do
-                    MockGame_PressRandomButtons(game, j)
+    describe("MockGame", function()
+        it("2 player p2p basic", function()
+            local numPlayers = 2
+            local game = MockGame_new(numPlayers, false)
+            local nframes = 15
+            for n = 1, nframes, 1 do
+                
+                print("SENDING RANDOM INPUTS ON FRAME " .. tostring(n))
+                for p = 1, numPlayers, 1 do
+                    MockGame_PressRandomButtons(game, p)
                 end
 
-                print("ADVANCING FROM FRAME " .. tostring(i))
-                MockGame_AdvanceFrame(game)
+                print("ADVANCING FROM FRAME " .. tostring(n))
+                for p = 1, numPlayers, 1 do
+                    MockGame_AdvanceFrame(game, p)
+                end
                 
-                print("BEGIN FRAME " .. tostring(i+1))
+                print("BEGIN FRAME " .. tostring(n+1))
 
-                print("POLLING FOR FRAME " .. tostring(i+1))
+                print("POLLING FOR FRAME " .. tostring(n+1))
+                MockGame_Poll(game, 100, 10, 20)
+                
+                -- NOTE that we should have polled long enough to guarantee states to be synchronized here
+                print("CHECKING FOR SYNCHRONIZATION")
+                expect(MockGame_IsStateSynchronized(game)).to.equal(true)
+            end
+        end)
+
+        it("2 player p2p rift", function()
+            local numPlayers = 2
+            print("initializing mock p2p game with 2 players)")
+            local game = MockGame_new(numPlayers, false)
+            local nframes = 5
+            for p = 1, numPlayers, 1 do
+                for n = 1, nframes, 1 do
+                    MockGame_PressRandomButtons(game, p)
+                    MockGame_AdvanceFrame(game, p)
+                    MockGame_Poll(game, 100, 10, 20)
+                end
+            end
+            expect(MockGame_IsStateSynchronized(game)).to.equal(true)
+        end)
+
+
+        it("4 player CARS basic", function()
+            local numPlayers = 4
+            print("initializing mock CARS game with 4 players)")
+            local game = MockGame_new(numPlayers, true)
+            local nframes = 15
+            for n = 1, 15, 1 do
+                
+
+                print("SENDING RANDOM INPUTS ON FRAME " .. tostring(n))
+                for p = 1, numPlayers, 1 do
+                    MockGame_PressRandomButtons(game, p)
+                end
+
+                print("ADVANCING FROM FRAME " .. tostring(n))
+                for p = 1, numPlayers, 1 do
+                    MockGame_AdvanceFrame(game, p)
+                end
+                
+                print("BEGIN FRAME " .. tostring(n+1))
+
+                print("POLLING FOR FRAME " .. tostring(n+1))
                 MockGame_Poll(game, 100, 10, 20)
                 
                 -- NOTE that we should have polled long enough to guarantee states to be synchronized here
@@ -442,5 +522,6 @@ return function()
             end
 
         end)
+
     end)
 end

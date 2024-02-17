@@ -240,7 +240,6 @@ export type GGPOCallbacks<T,I> = {
     --DisconnectPlayer: (PlayerHandle) -> ()
 }
 
-
 export type GameInput<I> = {
     -- this is not really needed but conveient to have
     -- the destination frame of this input
@@ -258,15 +257,20 @@ export type GameInput<I> = {
     -- nil represents no input? (i.e. AddLocalInput was never called)
     input: I?,
 
+    -- TODO DELETE
     potato : (GameInput<I>) -> string,
     potato_severity : number,
 }
+
+
 
 function GameInput_new<I>(frame : Frame, input : I?) : GameInput<I>
     assert(frame ~= nil, "expected frame to not be nil")
     local r = {
         frame = frame,
         input = input,
+
+        -- TODO DELETE
         potato = function(self : GameInput<I>)
             return string.format("GameInput: frame: %d, input: %s", self.frame, tostring(self.input))
         end,
@@ -279,6 +283,7 @@ export type GameConfig<I,J> = {
     inputDelay: FrameCount,
     maxPredictionFrames: FrameCount,
 
+    -- TODO should probbaly return any type? We are going to rely on Roblox's built in serialization which takes Any
     -- if nil, then default serialization is used which may be inefficient
     inputToString : ((I) -> string)?,
     infoToString : ((J) -> string)?,
@@ -313,8 +318,39 @@ local defaultGameConfig = {
 
 
 
-export type FrameInputMap<I> = {[Frame] : GameInput<I>}
+export type FrameMap<T> = {[Frame] : T}
 
+-- returns the last frame in the frame map or frameNull if the map is empty
+function FrameMap_lastFrame<T>(msg : FrameMap<T>) : Frame
+    if isempty(msg) then
+        return frameNull
+    end
+
+    local lastFrame = frameMin
+    for frame, _ in pairs(msg) do
+        if frame > lastFrame then
+            lastFrame = frame
+        end
+    end
+    return lastFrame
+end
+
+-- returns the first frame in the frame map or frameNull if the map is empty
+function FrameMap_firstFrame<T>(msg : FrameMap<T>) : Frame
+    if isempty(msg) then
+        return frameNull
+    end
+
+    local firstFrame = frameMax
+    for frame, _ in pairs(msg) do
+        if frame < firstFrame then
+            firstFrame = frame
+        end
+    end
+    return firstFrame
+end
+
+export type FrameInputMap<I> = FrameMap<GameInput<I> >
 
 function FrameInputMap_potato<I>(msg : FrameInputMap<I>) : string
     local r = ""
@@ -324,6 +360,7 @@ function FrameInputMap_potato<I>(msg : FrameInputMap<I>) : string
     return r
 end
 
+-- TODO DELETE replace with FrameMap_lastFrame
 function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
     if isempty(msg) then
         return frameNull
@@ -338,6 +375,7 @@ function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
     return lastFrame
 end
 
+-- TODO DELETE replace with FrameMap_firstFrame
 function FrameInputMap_firstFrame<I>(msg : FrameInputMap<I>) : Frame
     if isempty(msg) then
         return frameNull
@@ -650,7 +688,7 @@ export type Sync<T,I,J> = {
     gameConfig : GameConfig<I,J>,
     callbacks : GGPOCallbacks<T,I>,
     -- TODO need cleanup routine (with opt-out for testing)
-    savedstate : { [Frame] : { state : T, checksum : string } },
+    savedstate : FrameMap<{ state : T, checksum : string }>,
     rollingback : boolean,
     last_confirmed_frame : Frame,
     framecount : Frame, -- TODO rename to currentFrame
@@ -693,6 +731,7 @@ function Sync_LazyAddPlayer<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle)
     end
 end
 
+
 function Sync_SetLastConfirmedFrame<T,I,J>(sync : Sync<T,I,J>, frame : Frame)
     sync.last_confirmed_frame = frame
     
@@ -700,6 +739,14 @@ function Sync_SetLastConfirmedFrame<T,I,J>(sync : Sync<T,I,J>, frame : Frame)
     if frame >= frameInit then
         for player, iq in pairs(sync.input_queue) do
             InputQueue_DiscardConfirmedFrames(iq, frame)
+        end
+    end
+
+    -- clear the saved states up until frame (exclusive) since we will never rollback past a confirmed frame
+    local firstFrame = FrameMap_firstFrame(sync.savedstate)
+    if firstFrame ~= frameNull then
+        for i = firstFrame, frame-1, 1 do
+            sync.savedstate[i] = nil
         end
     end
 end
@@ -813,6 +860,12 @@ function Sync_SaveCurrentFrame<T,I,J>(sync : Sync<T,I,J>)
     local checksum = "TODO"
     sync.savedstate[sync.framecount] = { state = state, checksum = checksum }
     Potato(Potato.Info, ctx(sync), "Saved frame info %d (checksum: %s).", sync.framecount, checksum)
+
+    -- delete all frames in the future, we will never rollback to them
+    local lastFrame = FrameMap_lastFrame(sync.savedstate)
+    for i = sync.framecount+1, lastFrame, 1 do
+        sync.savedstate[i] = nil
+    end
 end
 
 function Sync_GetSavedFrame<T,I,J>(sync : Sync<T,I,J>, frame : Frame) 
@@ -839,6 +892,10 @@ end
 function Sync_SetFrameDelay<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle, delay : FrameCount)
     Sync_LazyAddPlayer(sync, player)
     sync.input_queue[player].frame_delay = delay
+end
+
+function Sync_InRollback<T,I,J>(sync : Sync<T,I,J>) : boolean
+    return sync.rollingback
 end
 
 
@@ -1677,7 +1734,9 @@ function GGPO_Peer_AdvanceFrame<T,I,J>(peer : GGPO_Peer<T,I,J>, frame)
     Sync_IncrementFrame(peer.sync)
     Tomato(ctx(peer), peer.sync.framecount == frame, "expected peer.sync.framecount %d to be frame %d after advancing", peer.sync.framecount, frame)
 
-    -- TODO maybe poll here?
+    if not Sync_InRollback(peer.sync) then
+        GGPO_Peer_DoPoll(peer)
+    end 
 end
 
 

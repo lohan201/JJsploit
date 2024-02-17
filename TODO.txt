@@ -1,16 +1,18 @@
 
 
 ## WIP TODO IGNORE
-DONE-need to better track starting frame in InputQueue
-  -Sync_LazyAddPlayer will init an inputQueue with no inputs, at that point we are already predicting to frame n (say) but there won't be any inputs in the queue
--since you added potato/severity stuff, you probably need custom serialize/deserialize for gameinput 
+-MockGame Functionality
+  -out of order packets
+-more tests
+  INPROGRESS-CARS test
+  INPROGRESS-force longer desync
+  -component tests for
+    -inputqueue
+    -sync
+IGNORE-switch to jest
+IGNORE-since you added potato/severity stuff, you probably need custom serialize/deserialize for gameinput 
   -just do gameinput_serializable without the potato
--call GGPO_Peer_DoPoll inside GGPO_Peer_AdvanceFrame
-  -- TODO maybe poll here?
--add polling timer to udpproto include calling UDPProto_OnLoopPoll
-  IGNORE-also need to call peer::DoPoll every now and then (NO, this is done by the API user, but you still need to call it after ADvanceFrame)
--add logging helpers to easily log tables and stuff etc
--write tests lol
+  -just delete the potato stuff
 -cleanup routine for savedstate in synced
 -add override and consistency assert in InputQueue_AddInput
   -need to dinstguish between local input and remote input and local player remote input
@@ -18,7 +20,6 @@ DONE-need to better track starting frame in InputQueue
   -do i need to track last added remote/local input?
   -ideally the same mechanism can be used to assert/override inputs that arrive out of order or from non auth peers 
   -Pretty sure you need to let sync know somehow that inputs were overridden
-
 
 -udpproto to support spectator mode
   -reject/assert/log on input
@@ -45,6 +46,15 @@ V2-figure out how to handle initial player data
   -prob best just to recommend X frames for syncing initial state and rift
   -send player data as server input on frame 0
 
+
+DONE-call GGPO_Peer_DoPoll inside GGPO_Peer_AdvanceFrame
+  -- TODO maybe poll here?
+IGNORE-add polling timer to udpproto include calling UDPProto_OnLoopPoll
+  -I guess you need to do this in the API layer (not a module script)
+  IGNORE-also need to call peer::DoPoll every now and then (NO, this is done by the API user, but you still need to call it after ADvanceFrame)
+DONE-need to better track starting frame in InputQueue
+  -Sync_LazyAddPlayer will init an inputQueue with no inputs, at that point we are already predicting to frame n (say) but there won't be any inputs in the queue
+DONE/IGNORE-add logging helpers to easily log tables and stuff etc
 DONE-you need to set inputQueue.first_incorrect_frame
   DONE-need to pass in gameinput equal function
   DONE-you also need to reset first_incorrect_frame (resetPrediction)
