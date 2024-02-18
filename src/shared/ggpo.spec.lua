@@ -31,7 +31,7 @@ export type MockUDPEndpointStuff<I> = {
 
     -- actual data
     -- key is when to send in epochMs
-    msgQueue : { [number] : GGPO.UDPMsg<I> },
+    msgQueue : { [number] : {GGPO.UDPMsg<I>} },
     subscriber : ((GGPO.UDPMsg<I>) -> ())?,
 
     -- for debuggng, may not always be set
@@ -72,10 +72,8 @@ function MockUDPEndpointManager_new<I>() : MockUDPEndpointManager<I>
     return r
 end
 
-function MockUDPEndpointManager_SetTime<I>(manager : MockUDPEndpointManager<I>, time : number?)
-  if time == nil then
-    time = GGPO.now()
-  end
+function MockUDPEndpointManager_SetTime<I>(manager : MockUDPEndpointManager<I>, time_ : number?)
+    local time = time_ or GGPO.now()
 
   if manager.time > time then
     error("mock time must be monotonic")
@@ -368,7 +366,7 @@ return function()
 
     describe("UDPProto", function()
         it("UDPProto_ClearInputsBefore", function()
-            local udpproto = GGPO.UDPProto_new(2, 1, false, GGPO.uselessUDPEndpoint)
+            local udpproto = GGPO.UDPProto_new(2, 1, GGPO.uselessUDPEndpoint)
             udpproto.playerData[1] = GGPO.UDPProto_Player_new()
             udpproto.playerData[1].pending_output[0] = GGPO.GameInput_new(0, "a")
             udpproto.playerData[1].pending_output[1] = GGPO.GameInput_new(1, "b")

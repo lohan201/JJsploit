@@ -1133,7 +1133,10 @@ export type UDPProto<I> = {
     msPerFrame: number,
 
     -- rift calculation
+    
+    -- TODO rename to lastReceivedPeerFrame
     lastReceivedFrame : Frame, -- this will always match playerData[player].lastFrame
+
     round_trip_time : TimeMS,
     -- (according to peer) frame peer - frame self
     remote_frame_advantage : FrameCount,
@@ -1774,6 +1777,7 @@ function GGPO_Peer_DoPoll<T,I,J>(peer : GGPO_Peer<T,I,J>)
     local total_min_confirmed = current_frame - 1
 
     for player, udp in pairs(peer.udps) do
+        -- TODO this should not be lastReceivedFrame, it should be the min of all lastReceivedFrame from all downstream players
         -- TODO NOTE this is different than original GGPO, in original GGPO, the peer has the  last received frame and connected status for all peers connected to player (N^2 pieces of data)
         -- and takes the min of all those. I don't quite know why it does this at all, doing just one hop here seems sufficient/better. I guess because we might be disconnected to the peer so we rely on relayed information to get the last frame?
         total_min_confirmed = math.min(udp.lastReceivedFrame, total_min_confirmed)
