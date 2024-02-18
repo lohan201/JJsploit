@@ -457,8 +457,9 @@ export type InputQueue<I,J> = {
     last_user_added_frame : Frame, -- does not include frame_delay
     last_added_frame : Frame, -- accounts for frame_delay, will equal last_user_added_frame + frame_delay if there were no frame delay shenanigans
     first_incorrect_frame : Frame,
-    prediction_frame : Frame,
     last_frame_requested : Frame,
+
+    prediction_map : FrameInputMap<I>, 
 
     frame_delay : FrameCount,
 
@@ -468,7 +469,12 @@ export type InputQueue<I,J> = {
     potato_severity : number,
 }
 
-function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerHandle, player: PlayerHandle, currentFrame : FrameCount, frame_delay : FrameCount) : InputQueue<I,J>
+function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerHandle, player: PlayerHandle, startFrame : Frame, currentFrame : Frame, frame_delay : FrameCount) : InputQueue<I,J>
+    local prediction_map = {}
+    -- no InputQueue = we were effectively predicting up until just before the currentFrame (assumes we have not called GetInput on the currentFrame)
+    for i = startFrame, currentFrame-1, 1 do
+        prediction_map[i] = GameInput_new(i, nil)
+    end
     local r = {
         gameConfig = gameConfig,
 
@@ -479,21 +485,20 @@ function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerHandle,
         last_user_added_frame = frameNull,
         last_added_frame = frameNull,
         first_incorrect_frame = frameNull,
-
-        -- InputQueue is initialized with all nil inputs, so it's as if we were predicting up until just before the currentFrame (assumes we have not called GetInput on the currentFrame)
-        prediction_frame = currentFrame == 0 and frameNull or currentFrame-1,
-
         last_frame_requested = frameNull,
+        
+
+        prediction_map = prediction_map,
 
         frame_delay = frame_delay,
 
         inputs = {},
 
         potato = function(self : InputQueue<I,J>)
-            return string.format("InputQueue: owner %d, player: %d, last_user_added_frame: %d, last_added_frame: %d, first_incorrect_frame: %d, last_frame_requested: %d, frame_delay: %d", 
-                self.owner, self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay)
+            return string.format("InputQueue: owner %d, player: %d, last_user_added_frame: %d, last_added_frame: %d, first_incorrect_frame: %d, last_frame_requested: %d, frame_delay: %d, firstFrame(prediction_map): %d", 
+                self.owner, self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay, FrameInputMap_firstFrame(self.prediction_map))
         end,
-        potato_severity = Potato.Warn,
+        potato_severity = Potato.Trace,
     }
     return r
 end
@@ -516,9 +521,10 @@ function InputQueue_DiscardConfirmedFrames<I,J>(inputQueue : InputQueue<I,J>, fr
     assert(frame >= 0)
 
     -- don't discard frames further back then we've last requested them :O
-    if inputQueue.last_frame_requested ~= frameNull then
-        frame = math.min(frame, inputQueue.last_frame_requested)
-    end
+    --if inputQueue.last_frame_requested ~= frameNull then
+    --    frame = math.min(frame, inputQueue.last_frame_requested)
+    --end
+    Tomato(ctx(inputQueue), inputQueue.last_frame_requested ~= frameNull or inputQueue.last_frame_requested >= frame, "expected last_frame_requested: %d to be nil or >= frame: %d", inputQueue.last_frame_requested, frame)
 
     Potato(Potato.Info, ctx(inputQueue), "InputQueue_DiscardConfirmedFrames: frame: %d", frame)
 
@@ -543,7 +549,13 @@ end
 function InputQueue_ResetPrediction<I,J>(inputQueue : InputQueue<I,J>, frame : Frame)
     Tomato(ctx(inputQueue), inputQueue.first_incorrect_frame == frameNull or frame <= inputQueue.first_incorrect_frame, "expected reset past first_incorrect_frame")
     inputQueue.first_incorrect_frame = frameNull
-    inputQueue.prediction_frame = frameNull
+
+    
+    -- we've rolled back at least as far back as first_incorrect_frame so we can just clear the prediction map, the predictions will get regenerated as we request inputs
+    local firstpredictedframe = FrameInputMap_firstFrame(inputQueue.prediction_map)
+    Tomato(ctx(inputQueue), firstpredictedframe == frameNull or firstpredictedframe >= frame, "expected first frame of prediction map %d to be >= %d", firstpredictedframe, frame)     
+    inputQueue.prediction_map = {}
+
     -- this is safe to do as because at the start of rollback, Sync will always ResetPrediction to at least as far back as our first_incorrect_frame, then it will call GetInput a bunch of times putting this back to where it was before and updating the prediction stuff above
     inputQueue.last_frame_requested = frameNull
 end
@@ -582,15 +594,12 @@ function InputQueue_GetInput<I,J>(inputQueue : InputQueue<I,J>, frame : Frame) :
         return fd
     else
         Potato(Potato.Info, ctx(inputQueue), "requested frame %d not found in queue.", frame);
-
         local basedInput = deep_copy(InputQueue_GetLastAddedInput(inputQueue))
-        inputQueue.prediction_frame = math.max(0, inputQueue.last_added_frame)
         -- eventually we may drop this requirement and use a more complex prediction algorithm, in particular, we may have inputs from the future 
-        Tomato(ctx(inputQueue), basedInput.frame < frame, "expected frame used for prediction to be less than requested frame")
+        Tomato(ctx(inputQueue), basedInput.frame < frame, "expected frame used for prediction to be less than requested frame (frame:%d, basedInput.frame:%d)", frame, basedInput.frame)
         Potato(Potato.Debug, ctx(inputQueue), "basing new prediction frame from previously added frame (frame:%d).", basedInput.frame)
         basedInput.frame = frame
-        -- TODO consider doing this, so you don't need to track prediction_frame
-        --inputQueue.inputs[frame] = basedInput
+        inputQueue.prediction_map[frame] = basedInput
         return basedInput
     end
 end
@@ -645,7 +654,7 @@ function InputQueue_AddInput<I,J>(inputQueue : InputQueue<I,J>, input : GameInpu
     -- TODO remove this guard once the assert above is enabled
     if input.frame < inputQueue.last_user_added_frame + 1 then
         -- expected to happen since we don't prune in udpproto before adding to msg queue
-        Potato(Potato.Info, ctx(inputQueue), "Input frame %d is older than the most recently added frame %d.  Ignoring.", input.frame, inputQueue.last_user_added_frame)
+        Potato(Potato.Info, ctx(inputQueue), "Input frame %d is <= than the most recently added frame %d.  Ignoring.", input.frame, inputQueue.last_user_added_frame)
         return nil
     end
 
@@ -657,14 +666,25 @@ function InputQueue_AddInput<I,J>(inputQueue : InputQueue<I,J>, input : GameInpu
 
     if new_frame ~= frameNull then
         
-        
-        if ((inputQueue.prediction_frame ~= frameNull) and (new_frame >= inputQueue.prediction_frame)) -- if we attempted to predict this frame 
-            or inputQueue.inputs[new_frame] --OR another peer sent us a frame in the past (TODO peer can only do this if peer == carsHandle)
-            then
+        if 
+            -- if we attempted to predict this frame 
+            (inputQueue.prediction_map[new_frame] ~= nil) 
+            --OR another peer sent us a frame in the past (TODO peer can only do this if peer == carsHandle)
+            or (inputQueue.player == carsHandle and inputQueue.inputs[new_frame]) 
+        then
 
-            local basedInput = inputQueue.inputs[new_frame] or InputQueue_GetLastAddedInput(inputQueue)
-            if not inputQueue.gameConfig.inputEquals(basedInput.input, input.input) then
-                inputQueue.first_incorrect_frame = new_frame
+            local basedInput = inputQueue.inputs[new_frame] or inputQueue.prediction_map[new_frame]
+            local match = inputQueue.gameConfig.inputEquals(basedInput.input, input.input)
+            Potato(Potato.Trace, ctx(inputQueue), "checking prediction for frame %d based on frame %d match: %s", new_frame, basedInput.frame, tostring(match))
+            if not match then
+                Potato(Potato.Warn, ctx(inputQueue), "MISSED PREDICTION for frame %d (prev first_incorrect_frame %d)", new_frame, inputQueue.first_incorrect_frame)
+                if inputQueue.first_incorrect_frame ~= frameNull then
+                    if new_frame < inputQueue.first_incorrect_frame then
+                        inputQueue.first_incorrect_frame = new_frame
+                    end
+                else    
+                    inputQueue.first_incorrect_frame = new_frame
+                end
             end
         else
             assert(inputQueue.inputs[new_frame] == nil, "expected frame to not exist in queue")
@@ -720,14 +740,14 @@ function Sync_new<T,I,J>(gameConfig: GameConfig<I,J>, callbacks: GGPOCallbacks<T
                 self.player, self.max_prediction_frames, tostring(self.rollingback), self.last_confirmed_frame, self.framecount)
         end,
 
-        potato_severity = Potato.Trace,
+        potato_severity = Potato.Warn,
     }
     return r
 end
 
 function Sync_LazyAddPlayer<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle)
     if sync.input_queue[player] == nil then
-        sync.input_queue[player] = InputQueue_new(sync.gameConfig, sync.player, player, sync.framecount, sync.gameConfig.inputDelay)
+        sync.input_queue[player] = InputQueue_new(sync.gameConfig, sync.player, player, frameInit, sync.framecount, sync.gameConfig.inputDelay)
     end
 end
 
@@ -826,7 +846,7 @@ function Sync_AdjustSimulation<T,I,J>(sync : Sync<T,I,J>, seek_to : number)
     local count = sync.framecount - seek_to
 
     Tomato(ctx(sync), count > 0, "expected to rollback more than 0 frames")
-    Potato(Potato.Debug, ctx(sync), "Rollback from %d to %d", sync.framecount, seek_to)
+    Potato(Potato.Warn, ctx(sync), "Rollback from %d to %d", sync.framecount, seek_to)
     sync.rollingback = true
 
     Sync_LoadFrame(sync, seek_to)
@@ -877,6 +897,7 @@ function Sync_CheckSimulationConsistency<T,I,J>(sync : Sync<T,I,J>) : Frame
     local first_incorrect = frameNull
     for player, iq in pairs(sync.input_queue) do
         local incorrect = InputQueue_GetFirstIncorrectFrame(iq)
+        print(tostring(sync.player) .. " GOT INCORRECT " .. tostring(incorrect) .. " FROM " .. tostring(player))
         if incorrect ~= frameNull and (first_incorrect == frameNull or incorrect < first_incorrect) then
             first_incorrect = incorrect
         end
@@ -1719,7 +1740,9 @@ function GGPO_Peer_DoPoll<T,I,J>(peer : GGPO_Peer<T,I,J>)
         UDPProto_SetLocalFrameNumber(udp, current_frame)
     end
 
-    local total_min_confirmed = frameMax
+    -- we are on current_frame which means we still need the input for current_frame
+    local total_min_confirmed = current_frame - 1
+
     for player, udp in pairs(peer.udps) do
         -- TODO NOTE this is different than original GGPO, in original GGPO, the peer has the  last received frame and connected status for all peers connected to player (N^2 pieces of data)
         -- and takes the min of all those. I don't quite know why it does this at all, doing just one hop here seems sufficient/better. I guess because we might be disconnected to the peer so we rely on relayed information to get the last frame?
