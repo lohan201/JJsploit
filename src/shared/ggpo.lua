@@ -676,7 +676,10 @@ function InputQueue_AddInput<I,J>(inputQueue : InputQueue<I,J>, input : GameInpu
             local basedInput = inputQueue.inputs[new_frame] or inputQueue.prediction_map[new_frame]
             local match = inputQueue.gameConfig.inputEquals(basedInput.input, input.input)
             Potato(Potato.Trace, ctx(inputQueue), "checking prediction for frame %d based on frame %d match: %s", new_frame, basedInput.frame, tostring(match))
-            if not match then
+            if match then  
+                Potato(Potato.Warn, ctx(inputQueue), "prediction correct for frame %d (prev first_incorrect_frame %d)", new_frame, inputQueue.first_incorrect_frame)
+                inputQueue.prediction_map[new_frame] = nil
+            else
                 Potato(Potato.Warn, ctx(inputQueue), "MISSED PREDICTION for frame %d (prev first_incorrect_frame %d)", new_frame, inputQueue.first_incorrect_frame)
                 if inputQueue.first_incorrect_frame ~= frameNull then
                     if new_frame < inputQueue.first_incorrect_frame then
@@ -1264,7 +1267,6 @@ function UDPProto_LazyInitPlayer<I>(udpproto : UDPProto<I>, player : PlayerHandl
 end
 
 
--- TODO rename to SendOwnerInput
 -- MUST be called once each frame!!! If there is no input, just call with { frame = frame, input = nil }
 function UDPProto_SendOwnerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>)
 

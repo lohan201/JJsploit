@@ -1,9 +1,15 @@
 
 
 ## WIP TODO IGNORE
--fix input queu prediction
+-isprodxy is udpproto is wrong, you need to have ggpo peer take the input and share with other udpportos
+
+DONE/IGNORE-nobody is calling SendPendingOutput on CARS (because we never add input to it)
+
+DONE-fix input queu prediction
 -MockGame Functionality
   -out of order packets
+-repeat test with UDPPROTO_NO_QUEUE_NIL_INPUT
+  -also move UDPPROTO_NO_QUEUE_NIL_INPUT into config
 -more tests
   INPROGRESS-CARS test
   INPROGRESS-force longer desync
