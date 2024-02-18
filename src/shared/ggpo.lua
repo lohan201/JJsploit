@@ -172,11 +172,19 @@ local potatometatable = {
 }
 setmetatable(Potato, potatometatable)
 
+-- assert for game-breaking errors
 function Tomato(pc : PotatoContext?, condition : any, s_ : string?, ...)
     if condition == nil or condition == false then
         local s = s_ or "assertion failed"
         error(potatoformat(Potato.ASSERT, pc, s, ...))
     end
+end
+
+-- TODO maybe rename to Pomato or Totato?
+function Eggplant(pc : PotatoContext?, condition : any, s_ : string?, ...)
+    -- disable these when deploying to production
+    Tomato(pc, condition, ...)
+    --Potato(Potato.Error, pc, s_ or "", ...)
 end
 
 
@@ -1123,7 +1131,6 @@ export type UDPProto<I> = {
     -- configuration
     sendLatency : number,
     msPerFrame: number,
-    isProxy : boolean,
 
     -- rift calculation
     lastReceivedFrame : Frame, -- this will always match playerData[player].lastFrame
@@ -1155,7 +1162,7 @@ export type UDPProto<I> = {
     next_send_seq : number,
     next_recv_seq : number,
 
-    event_queue : Queue<GGPOEvent<I>>,
+    event_queue : Queue.Queue<GGPOEvent<I>>,
 
     playerData : {[PlayerHandle] : UDPProto_Player<I>},
 
@@ -1183,11 +1190,7 @@ local function UDPProto_lastSynchronizedFrame<I>(udpproto : UDPProto<I>) : Frame
     return lastFrame
 end
 
-local function UDPProto_new<I>(owner : PlayerHandle, player : PlayerHandle, isProxy : boolean, endpoint : UDPEndpoint<I>) : UDPProto<I>
-
-    if owner == carsHandle then
-        assert(isProxy, "cars must be a proxy")
-    end
+local function UDPProto_new<I>(owner : PlayerHandle, player : PlayerHandle, endpoint : UDPEndpoint<I>) : UDPProto<I>
 
     -- initialize playerData
     local playerData = {}
@@ -1206,7 +1209,6 @@ local function UDPProto_new<I>(owner : PlayerHandle, player : PlayerHandle, isPr
         -- TODO configure
         sendLatency = 0,
         msPerFrame = 50,
-        isProxy = isProxy,
 
         lastReceivedFrame = frameNegOne,
         round_trip_time = 0,
@@ -1594,7 +1596,8 @@ export type GGPO_Peer<T,I,J> = {
     sync : Sync<T,I,J>,
     udps : { [PlayerHandle] : UDPProto<I> },
     spectators : { [number] : UDPProto<I> },
-    player : PlayerHandle,
+    player : PlayerHandle, -- TODO maybe rename to owner
+    isProxy : boolean,
     next_recommended_sleep : FrameCount,
 
     potato : (GGPO_Peer<T,I,J>, PotatoVerbosity) -> string,
@@ -1609,6 +1612,7 @@ function GGPO_Peer_new<T,I,J>(gameConfig : GameConfig<I,J>, callbacks : GGPOCall
         udps = {},
         spectators = {},
         player = player,
+        isProxy = player == carsHandle,
         next_recommended_sleep = 0,
 
         potato = function(self : GGPO_Peer<T,I,J>, verbosity : PotatoVerbosity)
@@ -1639,7 +1643,13 @@ function GGPO_Peer_AddPeer<T,I,J>(peer : GGPO_Peer<T,I,J>, player : PlayerHandle
     end
 
     assert(peer.udps[player] == nil, "expected peer to not already exist")
-    peer.udps[player] = UDPProto_new(peer.player, player, peer.player == carsHandle, endpoint)
+    peer.udps[player] = UDPProto_new(peer.player, player, endpoint)
+
+    if peer.isProxy then
+        Tomato(ctx(peer), peer.sync.framecount == frameInit, "adding peers after frameInit not supported")
+        -- TODO send most recently synced state to newly added peer
+        -- TODO send all inputs since synced state to newly added peer
+    end
 end
 
 function GGPO_Peer_GetStats<T,I,J>(peer : GGPO_Peer<T,I,J>) : {[PlayerHandle] : UDPNetworkStats}
@@ -1665,8 +1675,8 @@ local function GGPO_Peer_OnUdpProtocolEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, even
 end
 
 
-local function GGPO_Peer_OnUdpProtocolPeerEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, event : GGPOEvent<I>, player : PlayerHandle)
-    GGPO_Peer_OnUdpProtocolEvent(peer, event, player)
+local function GGPO_Peer_OnUdpProtocolPeerEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, event : GGPOEvent<I>, sender : PlayerHandle)
+    GGPO_Peer_OnUdpProtocolEvent(peer, event, sender)
     if event.t == "input" then
         for player, inputs in pairs(event.input) do
             

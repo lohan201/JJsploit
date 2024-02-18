@@ -452,6 +452,8 @@ return function()
 
                 print("POLLING FOR FRAME " .. tostring(n+1))
                 MockGame_Poll(game, 100, 10, 20)
+                -- double poll needed due to CARS requiring 2 hops for inputs to propogate
+                MockGame_Poll(game, 100, 10, 20)
                 
                 -- NOTE that we should have polled long enough to guarantee states to be synchronized here
                 print("CHECKING FOR SYNCHRONIZATION")
