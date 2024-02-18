@@ -1448,21 +1448,6 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
         UDPProto_LazyInitPlayer(udpproto, player)
     end
 
-    -- add the input to our pending output
-    if udpproto.isProxy then
-        for player, data in pairs(inputs) do
-            for frame, input in pairs(data.inputs) do
-                -- TODO check that there is no conflict between input and what's already in pending output
-                if UDPPROTO_NO_QUEUE_NIL_INPUT and input.input == nil then
-                    Potato(Potato.Info, ctx(udpproto), "UDPProto_OnInput: remote input for player %d frame %d is nil, no need to queue it", player, frame)
-                else
-                    udpproto.playerData[player].pending_output[frame] = input
-                end
-            end
-            udpproto.playerData[player].lastFrame = data.lastFrame
-        end
-    end
-
     -- now fill in empty inputs from udpproto.playerData[player].lastFrame+1 to msg.inputs[player].lastFrame because they get omitted for performance if they were nil
     --Tomato(ctx(udpproto), inputs[msg.player] ~= nil, "expected to receive inputs for peer") -- (need to add player to subscribe callback to do this)
     for player, data in pairs(inputs) do
