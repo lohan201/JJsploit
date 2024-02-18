@@ -189,13 +189,13 @@ export type PlayerHandle = number
 
 
 -- CONSTANTS
-local carsHandle = 99999999999
+local carsHandle = 999
 local spectatorHandle = -1
 local nullHandle = -2
 local frameInit = 0
 local frameNegOne = -1
-local frameNull = -999999999999
-local frameMax = 9999999999999
+local frameNull = -99999999
+local frameMax = 99999999
 local frameMin = frameNull+1 -- just so we can distinguish between null and min
 
 
@@ -498,7 +498,7 @@ function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerHandle,
             return string.format("InputQueue: owner %d, player: %d, last_user_added_frame: %d, last_added_frame: %d, first_incorrect_frame: %d, last_frame_requested: %d, frame_delay: %d, firstFrame(prediction_map): %d", 
                 self.owner, self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay, FrameInputMap_firstFrame(self.prediction_map))
         end,
-        potato_severity = Potato.Trace,
+        potato_severity = Potato.Warn,
     }
     return r
 end
@@ -897,7 +897,7 @@ function Sync_CheckSimulationConsistency<T,I,J>(sync : Sync<T,I,J>) : Frame
     local first_incorrect = frameNull
     for player, iq in pairs(sync.input_queue) do
         local incorrect = InputQueue_GetFirstIncorrectFrame(iq)
-        print(tostring(sync.player) .. " GOT INCORRECT " .. tostring(incorrect) .. " FROM " .. tostring(player))
+        --print(tostring(sync.player) .. " GOT INCORRECT " .. tostring(incorrect) .. " FROM " .. tostring(player))
         if incorrect ~= frameNull and (first_incorrect == frameNull or incorrect < first_incorrect) then
             first_incorrect = incorrect
         end
@@ -1241,7 +1241,7 @@ local function UDPProto_new<I>(owner : PlayerHandle, player : PlayerHandle, isPr
                 return string.format("UDPProto: owner %d, player: %d", self.owner, self.player)
             end
         end,
-        potato_severity = Potato.Trace,
+        potato_severity = Potato.Warn,
     }
 
     endpoint.subscribe(function(msg : UDPMsg<I>, player : PlayerHandle) 
@@ -1464,6 +1464,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     for player, data in pairs(inputs) do
         for i = udpproto.playerData[player].lastFrame+1, data.lastFrame, 1 do
             if data.inputs[i] == nil then
+                Tomato(ctx(udpproto), UDPPROTO_NO_QUEUE_NIL_INPUT, "nil inputs should only be possible if UDPPROTO_NO_QUEUE_NIL_INPUT is true") 
                 Potato(Potato.Info, ctx(udpproto), "did not receive inputs for player %d frame %d assume their inputs are nil", player, i)
                 data.inputs[i] = GameInput_new(i, nil)
             end
