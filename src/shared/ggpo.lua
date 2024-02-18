@@ -1301,6 +1301,26 @@ function UDPProto_SendOwnerInput<I>(udpproto : UDPProto<I>, input : GameInput<I>
     UDPProto_SendPendingOutput(udpproto);
 end
 
+function UDPProto_AddToPendingOutput<I>(udpproto : UDPProto<I>, playerInputs : PlayerFrameInputMap<I>)
+    for player, inputs in pairs(playerInputs) do
+        UDPProto_LazyInitPlayer(udpproto, player)
+        local lastFrame = frameNull
+        for frame, input in pairs(inputs) do
+            -- TODO check that there is no conflict between input and what's already in pending output
+            if UDPPROTO_NO_QUEUE_NIL_INPUT and input.input == nil then
+                Potato(Potato.Info, ctx(udpproto), "UDPProto_OnInput: remote input for player %d frame %d is nil, no need to queue it", player, frame)
+            else
+                udpproto.playerData[player].pending_output[frame] = input
+            end
+            lastFrame = math.max(frame, lastFrame)
+        end
+        udpproto.playerData[player].lastFrame = lastFrame
+    end
+
+    -- TODO we would have less redundancy if we could this after we process all the messages in the udp queue
+    UDPProto_SendPendingOutput(udpproto)
+end
+
 
 function UDPProto_SendPendingOutput<I>(udpproto : UDPProto<I>)
     local inputs = {}
@@ -1683,6 +1703,18 @@ local function GGPO_Peer_OnUdpProtocolPeerEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, 
                     Sync_AddRemoteInput(peer.sync, player, input)
                 end
             end
+
+            -- add the input to pending output for each of our peers
+            if peer.isProxy then
+                for _, udpproto in pairs(peer.udps) do
+                    -- don't replicate events back to the player who sent them to us
+                    if udpproto.player ~= sender then
+                        Eggplant(ctx(peer), udpproto.player ~= player, "expected sender %d not to send inputs for udpproto.player %d", sender, udpproto.player)
+                        UDPProto_AddToPendingOutput(udpproto, event.input)
+                    end
+                end
+            end
+
         end
     end
 
