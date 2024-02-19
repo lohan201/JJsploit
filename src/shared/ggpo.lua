@@ -609,7 +609,7 @@ local function InputQueue_AdjustForFrameDelay<I,J>(inputQueue : InputQueue<I,J>,
     local expected_frame = (inputQueue.last_added_frame == frameNull and 0) or inputQueue.last_added_frame + 1
     frame += inputQueue.frame_delay
 
-        Tomato(ctx(inputQueue), expected_frame >= frameInit, "expected_frame %d must be >= 0", expected_frame)
+    Tomato(ctx(inputQueue), expected_frame >= frameInit, "expected_frame %d must be >= 0", expected_frame)
 
 
     if expected_frame > frame then
@@ -1007,7 +1007,7 @@ end
 
 
 local UDPPROTO_MAX_SEQ_DISTANCE = 8
-local UDPPROTO_NO_QUEUE_NIL_INPUT = false -- TODO enable this 
+local UDPPROTO_NO_QUEUE_NIL_INPUT = true
 
 export type UDPMsg_Type = "Ping" | "Pong" | "InputAck" | "Input" | "QualityReport" 
 
@@ -1116,6 +1116,8 @@ export type UDPProto<I> = {
     -- however in the future, if we have cars auth input these will not match, playerData[player].lastFrame will be the last input received from cars
     lastAddedLocalFrame : Frame,
 
+    lastAckedFrame : Frame,
+
     -- stats
     packets_sent : number,
     bytes_sent : number,
@@ -1188,6 +1190,8 @@ local function UDPProto_new<I>(owner : PlayerHandle, player : PlayerHandle, endp
 
         lastAddedLocalFrame = frameNegOne,
 
+        lastAckedFrame = frameNull,
+
         packets_sent = 0,
         bytes_sent = 0,
         kbps_sent = 0,
@@ -1256,11 +1260,14 @@ end
 local function UDPProto_SendPendingOutput<I>(udpproto : UDPProto<I>)
     local inputs = {}
     for player, data in pairs(udpproto.playerData) do
-        if tablecount(data.pending_output) > 0 then
+        if 
+            player ~= udpproto.player -- don't replicate events back to the player who sent them to us
+            and data.lastFrame > udpproto.lastAckedFrame -- don't send anything if we're all caught up, NOTE data.lastFrame should never be < udpproto.lastAckedFrame
+        then
             inputs[player] = { inputs = data.pending_output, lastFrame = data.lastFrame }
         end
     end
-   UDPProto_SendMsg(udpproto, { t = "Input", ack_frame = udpproto.lastReceivedFrame, peerFrame = udpproto.lastAddedLocalFrame, inputs = inputs })
+    UDPProto_SendMsg(udpproto, { t = "Input", ack_frame = udpproto.lastReceivedFrame, peerFrame = udpproto.lastAddedLocalFrame, inputs = inputs })
 end
 
 -- MUST be called once each frame!!! If there is no input, just call with { frame = frame, input = nil }
@@ -1277,8 +1284,7 @@ local function UDPProto_SendOwnerInput<I>(udpproto : UDPProto<I>, input : GameIn
     TimeSync_advance_frame(udpproto.timesync, udpproto.local_frame_advantage, remoteFrameAdvantages)
 
 
-    -- TODO I guess you actually don't want this check in server case where inputs might be skipped
-    assert(input.frame == udpproto.lastAddedLocalFrame + 1, string.format("expected input frame %d to be %d + 1", input.frame, udpproto.lastAddedLocalFrame))
+    Tomato(ctx(udpproto), input.frame == udpproto.lastAddedLocalFrame + 1, string.format("expected input frame %d to be %d + 1", input.frame, udpproto.lastAddedLocalFrame))
 
 
     udpproto.lastAddedLocalFrame = input.frame
@@ -1452,9 +1458,9 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
         udpproto.playerData[player].lastFrame = data.lastFrame
     end
 
-
-    -- send input ack and clear inputs
     UDPProto_SendInputAck(udpproto)
+
+    udpproto.lastAckedFrame = msg.ack_frame
     UDPProto_ClearInputsBefore(udpproto, msg.ack_frame)
 
 
@@ -1462,13 +1468,16 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     -- TODO I tried to just delete data.lastFrame but that wasn't enough to make the luau typechecker happy :(
     local inputs2 = {}
     for player, data in pairs(inputs) do
-        inputs2[player] = data.inputs
+        if not isempty(data.inputs) then
+            inputs2[player] = data.inputs
+        end
     end
     UDPProto_QueueEvent(udpproto, {t = "input", input = inputs2})
 
 end
 
 local function UDPProto_OnInputAck<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_InputAck) 
+    udpproto.lastAckedFrame = msg.frame
     UDPProto_ClearInputsBefore(udpproto, msg.frame)
 end
 
@@ -1677,7 +1686,10 @@ local function GGPO_Peer_OnUdpProtocolPeerEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, 
             -- add the input to pending output for each of our peers
             if peer.isProxy then
                 for _, udpproto in pairs(peer.udps) do
+
+                    
                     -- don't replicate events back to the player who sent them to us
+                    -- NOTE this is redundant to the one in UDPProto_SendPendingOutput
                     if udpproto.player ~= sender then
                         Eggplant(ctx(peer), udpproto.player ~= player, "expected sender %d not to send inputs for udpproto.player %d", sender, udpproto.player)
                         UDPProto_AddToPendingOutput(udpproto, event.input)
@@ -1751,7 +1763,7 @@ local function GGPO_Peer_DoPoll<T,I,J>(peer : GGPO_Peer<T,I,J>)
         total_min_confirmed = math.min(lastSyncFrame, total_min_confirmed)
     end
 
-    Potato(Potato.Trace, ctx(peer), "setting last confirmed frame to: %d", total_min_confirmed)
+    Potato(Potato.Warn, ctx(peer), "setting last confirmed frame to: %d", total_min_confirmed)
     Sync_SetLastConfirmedFrame(peer.sync, total_min_confirmed)
 
 end
