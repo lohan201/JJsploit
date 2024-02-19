@@ -75,10 +75,10 @@ end
 function MockUDPEndpointManager_SetTime<I>(manager : MockUDPEndpointManager<I>, time_ : number?)
     local time = time_ or GGPO.now()
 
-  if manager.time > time then
-    error("mock time must be monotonic")
-  end
-  manager.time = time
+    if manager.time > time then
+        error("mock time must be monotonic")
+    end
+    manager.time = time
 end
 
 function MockUDPEndpointManager_PollUDP<I>(manager : MockUDPEndpointManager<I>)
@@ -301,10 +301,18 @@ function MockGame_AdvanceFrame(mockGame : MockGame, player : GGPO.PlayerHandle)
     mockGame.players[player].ggpo.callbacks.AdvanceFrame()
 end
 
+function MockGame_AdvanceCars(mockGame : MockGame)
+    local cars = mockGame.players[GGPO.carsHandle]
+    local ggpoinput = GGPO.GameInput_new(cars.state.frame, nil)
+    GGPO.GGPO_Peer_AddLocalInput(cars.ggpo, ggpoinput)
+    mockGame.players[GGPO.carsHandle].ggpo.callbacks.AdvanceFrame()
+end
+
 function MockGame_IsStateSynchronized(mockGame : MockGame) : boolean
     
     local last_confirmed_frame = GGPO.frameMax
     for i, player in pairs(mockGame.players) do
+        print("MockGame_IsStateSynchronized: last confirmed frame for player " .. tostring(i) .. " is " .. tostring(player.ggpo.sync.last_confirmed_frame))
         last_confirmed_frame = math.min(last_confirmed_frame, player.ggpo.sync.last_confirmed_frame)
     end
 
@@ -385,8 +393,8 @@ return function()
     end)
 
     describe("MockGame", function()
-        it("2 player p2p basic", function()
-            local numPlayers = 2
+        it("n player p2p basic", function()
+            local numPlayers = 4
             local game = MockGame_new(numPlayers, false)
             local nframes = 15
             for n = 1, nframes, 1 do
@@ -412,8 +420,8 @@ return function()
             end
         end)
 
-        it("2 player p2p rift", function()
-            local numPlayers = 2
+        it("n player p2p rift", function()
+            local numPlayers = 4
             print("initializing mock p2p game with 2 players)")
             local game = MockGame_new(numPlayers, false)
             local nframes = 5
@@ -428,9 +436,9 @@ return function()
         end)
 
 
-        it("4 player CARS basic", function()
+        it("n player CARS basic", function()
             local numPlayers = 4
-            print("initializing mock CARS game with 4 players)")
+            print("initializing mock CARS game with 2 players)")
             local game = MockGame_new(numPlayers, true)
             local nframes = 15
             for n = 1, 15, 1 do
@@ -445,12 +453,16 @@ return function()
                 for p = 1, numPlayers, 1 do
                     MockGame_AdvanceFrame(game, p)
                 end
+
+                print("ADVANCE CARS")
+                MockGame_AdvanceCars(game)
                 
                 print("BEGIN FRAME " .. tostring(n+1))
 
                 print("POLLING FOR FRAME " .. tostring(n+1))
+                -- triple poll needed due to CARS requiring 2 hops for inputs to propogate and then one more for input ack
                 MockGame_Poll(game, 100, 10, 20)
-                -- double poll needed due to CARS requiring 2 hops for inputs to propogate
+                MockGame_Poll(game, 100, 10, 20)
                 MockGame_Poll(game, 100, 10, 20)
                 
                 -- NOTE that we should have polled long enough to guarantee states to be synchronized here

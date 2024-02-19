@@ -1804,6 +1804,8 @@ function GGPO_Peer_DoPoll<T,I,J>(peer : GGPO_Peer<T,I,J>)
         -- and takes the min of all those. I don't quite know why it does this at all, doing just one hop here seems sufficient/better. I guess because we might be disconnected to the peer so we rely on relayed information to get the last frame?
         total_min_confirmed = math.min(udp.lastReceivedFrame, total_min_confirmed)
     end
+
+    Potato(Potato.Trace, ctx(peer), "setting last confirmed frame to: %d", total_min_confirmed)
     Sync_SetLastConfirmedFrame(peer.sync, total_min_confirmed)
 
 end
