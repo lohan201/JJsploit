@@ -24,14 +24,14 @@ local function tablecount(t)
 end
 
 -- simple deep copy, does not handle metatables or recursive tables!!
-function deep_copy_simple(obj)
+local function deep_copy_simple(obj)
     if type(obj) ~= 'table' then return obj end
     local res = {}
     for k, v in pairs(obj) do res[deep_copy_simple(k)] = deep_copy_simple(v) end
     return res
 end
 
-function deep_copy(obj : any, seen : ({ [any]: {} })?)
+local function deep_copy(obj : any, seen : ({ [any]: {} })?)
     -- Handle non-tables and previously-seen tables.
     if type(obj) ~= 'table' then return obj end
     if seen and seen[obj] then return seen[obj] end
@@ -117,7 +117,7 @@ export type PotatoContext = {
     stackLines : number,
 }
 
-function ctx(p : Potato, verbosity : PotatoVerbosity?, stackLines : number?) : PotatoContext
+local function ctx(p : Potato, verbosity : PotatoVerbosity?, stackLines : number?) : PotatoContext
     return {
         context = p,
         verbosity = verbosity or 0,
@@ -173,7 +173,7 @@ local potatometatable = {
 setmetatable(Potato, potatometatable)
 
 -- assert for game-breaking errors
-function Tomato(pc : PotatoContext?, condition : any, s_ : string?, ...)
+local function Tomato(pc : PotatoContext?, condition : any, s_ : string?, ...)
     if condition == nil or condition == false then
         local s = s_ or "assertion failed"
         error(potatoformat(Potato.ASSERT, pc, s, ...))
@@ -181,7 +181,7 @@ function Tomato(pc : PotatoContext?, condition : any, s_ : string?, ...)
 end
 
 -- TODO maybe rename to Pomato or Totato?
-function Eggplant(pc : PotatoContext?, condition : any, s_ : string?, ...)
+local function Eggplant(pc : PotatoContext?, condition : any, s_ : string?, ...)
     -- disable these when deploying to production
     Tomato(pc, condition, ...)
     --Potato(Potato.Error, pc, s_ or "", ...)
@@ -272,7 +272,7 @@ export type GameInput<I> = {
 
 
 
-function GameInput_new<I>(frame : Frame, input : I?) : GameInput<I>
+local function GameInput_new<I>(frame : Frame, input : I?) : GameInput<I>
     assert(frame ~= nil, "expected frame to not be nil")
     local r = {
         frame = frame,
@@ -306,7 +306,7 @@ export type GameConfig<I,J> = {
     --serializeInfo : (J) -> string,
 }
 
-function prediction_use_last_input<I>(frame : Frame, pastInputs : FrameInputMap<I>) : I?
+local function prediction_use_last_input<I>(frame : Frame, pastInputs : FrameInputMap<I>) : I?
     local lastFrame = FrameInputMap_lastFrame(pastInputs)
     if lastFrame == frameNull then
         return nil
@@ -329,7 +329,7 @@ local defaultGameConfig = {
 export type FrameMap<T> = {[Frame] : T}
 
 -- returns the last frame in the frame map or frameNull if the map is empty
-function FrameMap_lastFrame<T>(msg : FrameMap<T>) : Frame
+local function FrameMap_lastFrame<T>(msg : FrameMap<T>) : Frame
     if isempty(msg) then
         return frameNull
     end
@@ -344,7 +344,7 @@ function FrameMap_lastFrame<T>(msg : FrameMap<T>) : Frame
 end
 
 -- returns the first frame in the frame map or frameNull if the map is empty
-function FrameMap_firstFrame<T>(msg : FrameMap<T>) : Frame
+local function FrameMap_firstFrame<T>(msg : FrameMap<T>) : Frame
     if isempty(msg) then
         return frameNull
     end
@@ -360,7 +360,7 @@ end
 
 export type FrameInputMap<I> = FrameMap<GameInput<I> >
 
-function FrameInputMap_potato<I>(msg : FrameInputMap<I>) : string
+local function FrameInputMap_potato<I>(msg : FrameInputMap<I>) : string
     local r = ""
     for frame, input in pairs(msg) do
         r = r .. string.format("(%d,%s)", frame, tostring(input.input))
@@ -369,7 +369,7 @@ function FrameInputMap_potato<I>(msg : FrameInputMap<I>) : string
 end
 
 -- TODO DELETE replace with FrameMap_lastFrame
-function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
+local function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
     if isempty(msg) then
         return frameNull
     end
