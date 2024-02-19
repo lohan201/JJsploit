@@ -737,6 +737,7 @@ local function Sync_LoadFrame<T,I,J>(sync : Sync<T,I,J>, frame : Frame)
     end
 
     local state = sync.savedstate[frame]
+    Tomato(ctx(sync), state, "expected state to exist for frame %d", frame)
     Potato(Potato.Info, ctx(sync), "Loading frame info %d checksum: %s", frame, state.checksum)
     sync.callbacks.LoadGameState(state.state, frame)
     sync.framecount = frame
@@ -1156,9 +1157,7 @@ local function UDPProto_lastSynchronizedFrame<I>(udpproto : UDPProto<I>) : Frame
             lastFrame = data.lastFrame
         end
     end
-    if lastFrame == frameMax then
-        lastFrame = frameNull
-    end
+    lastFrame = math.min(udpproto.lastReceivedFrame, lastFrame)
     return lastFrame
 end
 

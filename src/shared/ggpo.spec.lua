@@ -312,7 +312,7 @@ function MockGame_IsStateSynchronized(mockGame : MockGame) : boolean
     
     local last_confirmed_frame = GGPO.frameMax
     for i, player in pairs(mockGame.players) do
-        print("MockGame_IsStateSynchronized: last confirmed frame for player " .. tostring(i) .. " is " .. tostring(player.ggpo.sync.last_confirmed_frame))
+        --print("MockGame_IsStateSynchronized: last confirmed frame for player " .. tostring(i) .. " is " .. tostring(player.ggpo.sync.last_confirmed_frame))
         last_confirmed_frame = math.min(last_confirmed_frame, player.ggpo.sync.last_confirmed_frame)
     end
 
@@ -444,22 +444,22 @@ return function()
             for n = 1, 15, 1 do
                 
 
-                print("SENDING RANDOM INPUTS ON FRAME " .. tostring(n))
+                --print("SENDING RANDOM INPUTS ON FRAME " .. tostring(n))
                 for p = 1, numPlayers, 1 do
                     MockGame_PressRandomButtons(game, p)
                 end
 
-                print("ADVANCING FROM FRAME " .. tostring(n))
+                --print("ADVANCING FROM FRAME " .. tostring(n))
                 for p = 1, numPlayers, 1 do
                     MockGame_AdvanceFrame(game, p)
                 end
 
-                print("ADVANCE CARS")
+                --print("ADVANCE CARS")
                 MockGame_AdvanceCars(game)
                 
-                print("BEGIN FRAME " .. tostring(n+1))
+                --print("BEGIN FRAME " .. tostring(n+1))
 
-                print("POLLING FOR FRAME " .. tostring(n+1))
+                --print("POLLING FOR FRAME " .. tostring(n+1))
                 -- triple poll needed due to CARS requiring 2 hops for inputs to propogate and then one more for input ack
                 MockGame_Poll(game, 100, 10, 20)
                 MockGame_Poll(game, 100, 10, 20)
