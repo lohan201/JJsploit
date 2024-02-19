@@ -1517,15 +1517,20 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
         udpproto.playerData[player].lastFrame = data.lastFrame
     end
 
+
+    -- send input ack and clear inputs
+    UDPProto_SendInputAck(udpproto)
+    UDPProto_ClearInputsBefore(udpproto, msg.ack_frame)
+
+
+    -- pass the event up
     -- TODO I tried to just delete data.lastFrame but that wasn't enough to make the luau typechecker happy :(
     local input = {}
     for player, data in pairs(inputs) do
         input[player] = data.inputs
     end
-
     UDPProto_QueueEvent(udpproto, {t = "input", input = input})
 
-    UDPProto_ClearInputsBefore(udpproto, msg.ack_frame)
 end
 
 local function UDPProto_OnInputAck<I>(udpproto : UDPProto<I>, msg : UDPPeerMsg_InputAck) 
