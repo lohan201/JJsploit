@@ -815,6 +815,7 @@ end
 -- returns the GameInput with frame adjusted for frame delay
 function Sync_AddLocalInput<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle, input : GameInput<I>) : GameInput<I>?
     Tomato(ctx(sync), input ~= nil, "expected input to not be nil")
+    Tomato(ctx(sync), player == sync.player, "expected player to be the owner of this sync object")
 
     Sync_LazyAddPlayer(sync, player)
 
