@@ -715,7 +715,9 @@ end
 
 -- DONE UNTESTED
 export type Sync<T,I,J> = {
+    -- TODO maybe rename to owner
     player : PlayerHandle,
+
     gameConfig : GameConfig<I,J>,
     callbacks : GGPOCallbacks<T,I>,
     -- TODO need cleanup routine (with opt-out for testing)
@@ -758,6 +760,7 @@ end
 
 function Sync_LazyAddPlayer<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle)
     if sync.input_queue[player] == nil then
+        -- for now, start frame is just frameInit but we will change this to something else if/when we allow players to join mid game
         sync.input_queue[player] = InputQueue_new(sync.gameConfig, sync.player, player, frameInit, sync.framecount, sync.gameConfig.inputDelay)
     end
 end
@@ -805,7 +808,7 @@ function Sync_AddLocalInput<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle, in
 
     Potato(Potato.Info, ctx(sync), "Adding undelayed local frame %d for player %d.", sync.framecount, player)
     Tomato(ctx(sync), input.frame == sync.framecount, string.format("expected input frame %d to match current frame %d", input.frame, sync.framecount))
-    return InputQueue_AddInput(sync.input_queue[player], input)
+    return InputQueue_AddLocalInput(sync.input_queue[player], input)
 end
 
 function Sync_AddRemoteInput<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle, input : GameInput<I>)
@@ -816,7 +819,7 @@ function Sync_AddRemoteInput<T,I,J>(sync : Sync<T,I,J>, player : PlayerHandle, i
             Potato(Potato.Warn, ctx(sync), "Received remote self input for frame %d", input.frame)
         end
     end
-    InputQueue_AddInput(sync.input_queue[player], input)
+    InputQueue_AddRemoteInput(sync.input_queue[player], input)
 end
 
 
