@@ -625,7 +625,7 @@ function InputQueue_GetFrameAdjustedForFrameDelay<I,J>(inputQueue : InputQueue<I
     frame += inputQueue.frame_delay
 
     if not (expected_frame >= frameInit) then
-    Tomato(ctx(inputQueue), expected_frame >= frameInit, "expected_frame %d must be >= 0", expected_frame)
+        Tomato(ctx(inputQueue), expected_frame >= frameInit, "expected_frame %d must be >= 0", expected_frame)
     end
 
     if expected_frame > frame then
@@ -655,9 +655,8 @@ end
 -- returns nil if the input was not added (due to already being in the queue)
 -- returns the GameInput with frame adjusted for frame delay
 function InputQueue_AddLocalInput<I,J>(inputQueue : InputQueue<I,J>, input : GameInput<I>) : GameInput<I>?
-    Tomato(ctx(inputQueue), inputQueue.owner == inputQueue.player, "expected local input!")
-    Potato(Potato.Info, ctx(inputQueue), "adding input %s for frame %d ", tostring(input.input), input.frame)
 
+    Tomato(ctx(inputQueue), inputQueue.owner == inputQueue.player, "expected local input!")
     -- verify that inputs are passed in sequentially by the user, regardless of frame delay
     -- NOTE in the future, when players can join mid game, the first input may not be on frame 0, 
     Tomato(ctx(inputQueue), inputQueue.last_user_added_frame == frameNull or input.frame == inputQueue.last_user_added_frame + 1, string.format("expected input frames to be sequential %d == %d+1", input.frame, inputQueue.last_user_added_frame))
@@ -666,18 +665,14 @@ function InputQueue_AddLocalInput<I,J>(inputQueue : InputQueue<I,J>, input : Gam
     inputQueue.last_user_added_frame = input.frame
 
     local new_frame = InputQueue_GetFrameAdjustedForFrameDelay(inputQueue, input.frame)
-
-    local out_input = GameInput_new(new_frame, input.input)
-
-    --Potato(Potato.Warn, ctx(inputQueue), "adding input %s for frame %d ", tostring(input.input), new_frame)
-
+    local new_input = GameInput_new(new_frame, input.input)
     if new_frame ~= frameNull then
-        InputQueue_AddInput_Internal(inputQueue, out_input)
+        InputQueue_AddInput_Internal(inputQueue, new_input)
     end
 
     inputQueue.first_frame = false
 
-    return GameInput_new(new_frame, input.input)
+    return new_input
 end
 
 function InputQueue_AddRemoteInput<I,J>(inputQueue : InputQueue<I,J>, input : GameInput<I>)
@@ -704,33 +699,33 @@ end
 
 function InputQueue_AddInput_Internal<I,J>(inputQueue : InputQueue<I,J>, input : GameInput<I>)       
     Potato(Potato.Trace, ctx(inputQueue), "adding input %s for frame %d ", tostring(input.input), input.frame)
-        if 
-            -- if we attempted to predict this frame 
+    if 
+        -- if we attempted to predict this frame 
         (inputQueue.prediction_map[input.frame] ~= nil) 
-            --OR another peer sent us a frame in the past (TODO peer can only do this if peer == carsHandle)
+        --OR another peer sent us a frame in the past (TODO peer can only do this if peer == carsHandle)
         or (inputQueue.player == carsHandle and inputQueue.inputs[input.frame]) 
-        then
+    then
 
         local basedInput = inputQueue.inputs[input.frame] or inputQueue.prediction_map[input.frame]
-            local match = inputQueue.gameConfig.inputEquals(basedInput.input, input.input)
+        local match = inputQueue.gameConfig.inputEquals(basedInput.input, input.input)
         Potato(Potato.Trace, ctx(inputQueue), "checking prediction for frame %d based on frame %d match: %s", input.frame, basedInput.frame, tostring(match))
-            if match then  
+        if match then  
             Potato(Potato.Info, ctx(inputQueue), "prediction correct for frame %d (prev first_incorrect_frame %d)", input.frame, inputQueue.first_incorrect_frame)
             inputQueue.prediction_map[input.frame] = nil
-            else
+        else
             Potato(Potato.Info, ctx(inputQueue), "MISSED PREDICTION for frame %d (prev first_incorrect_frame %d)", input.frame, inputQueue.first_incorrect_frame)
-                if inputQueue.first_incorrect_frame ~= frameNull then
+            if inputQueue.first_incorrect_frame ~= frameNull then
                 if input.frame < inputQueue.first_incorrect_frame then
                     inputQueue.first_incorrect_frame = input.frame
-                    end
-                else    
-                inputQueue.first_incorrect_frame = input.frame
                 end
+            else    
+                inputQueue.first_incorrect_frame = input.frame
             end
-        else
-        Tomato(ctx(inputQueue), inputQueue.inputs[input.frame] == nil, "expected frame to not exist in queue")
         end
-        
+    else
+        Tomato(ctx(inputQueue), inputQueue.inputs[input.frame] == nil, "expected frame to not exist in queue")
+    end
+    
     Tomato(ctx(inputQueue), inputQueue.inputs[input.frame] == nil, "expected frame to not exist in queue")
     inputQueue.inputs[input.frame] = input
     inputQueue.last_added_frame = input.frame
@@ -1161,7 +1156,7 @@ export type UDPProto<I> = {
     msPerFrame: number,
 
     -- rift calculation
-    
+
     -- TODO rename to lastReceivedPeerFrame
     lastReceivedFrame : Frame, -- this will always match playerData[player].lastFrame
 
@@ -1511,7 +1506,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
         end
     end
 
-    -- update the last frame    
+    -- update the last frame  
     udpproto.lastReceivedFrame = msg.peerFrame
     for player, data in pairs(inputs) do
         udpproto.playerData[player].lastFrame = data.lastFrame
