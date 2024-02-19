@@ -460,7 +460,6 @@ export type InputQueue<I,J> = {
 
     owner : PlayerHandle, -- the player that owns this InputQueue, for debug purposes only
     player : PlayerHandle, -- the player this InputQueue represents
-    first_frame : boolean,
 
     last_user_added_frame : Frame, -- does not include frame_delay
     last_added_frame : Frame, -- accounts for frame_delay, will equal last_user_added_frame + frame_delay if there were no frame delay shenanigans
@@ -488,7 +487,6 @@ function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerHandle,
 
         owner = owner, 
         player = player,
-        first_frame = true,
 
         last_user_added_frame = frameNull,
         last_added_frame = frameNull,
@@ -620,8 +618,7 @@ function InputQueue_GetFrameAdjustedForFrameDelay<I,J>(inputQueue : InputQueue<I
     Potato(Potato.Warn, ctx(inputQueue), "advancing queue head to frame %d.", frame)
 
     -- NOTE in the future, when players can join mid game, the first input may not be on frame 0
-    -- TODO FrameInputMap_lastFrame(inputQueue.inputs) won't always work because we may have legitimately discarded this input, you should prob track this directly and get rid of first_frame
-    local expected_frame = inputQueue.first_frame and 0 or FrameInputMap_lastFrame(inputQueue.inputs) + 1
+    local expected_frame = (inputQueue.last_added_frame == frameNull and 0) or inputQueue.last_added_frame + 1
     frame += inputQueue.frame_delay
 
     if not (expected_frame >= frameInit) then
@@ -670,8 +667,6 @@ function InputQueue_AddLocalInput<I,J>(inputQueue : InputQueue<I,J>, input : Gam
         InputQueue_AddInput_Internal(inputQueue, new_input)
     end
 
-    inputQueue.first_frame = false
-
     return new_input
 end
 
@@ -694,7 +689,6 @@ function InputQueue_AddRemoteInput<I,J>(inputQueue : InputQueue<I,J>, input : Ga
 
     inputQueue.last_user_added_frame = input.frame
     InputQueue_AddInput_Internal(inputQueue, input)
-    inputQueue.first_frame = false
 end
 
 function InputQueue_AddInput_Internal<I,J>(inputQueue : InputQueue<I,J>, input : GameInput<I>)       
