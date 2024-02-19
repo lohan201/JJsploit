@@ -1,10 +1,10 @@
 
 
 ## WIP TODO IGNORE
+-make all functions local
 -isprodxy is udpproto is wrong, you need to have ggpo peer take the input and share with other udpportos
-
+-maybe replace frameNull with nil...
 DONE/IGNORE-nobody is calling SendPendingOutput on CARS (because we never add input to it)
-
 DONE-fix input queu prediction
 -MockGame Functionality
   -out of order packets

@@ -384,7 +384,7 @@ local function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
 end
 
 -- TODO DELETE replace with FrameMap_firstFrame
-function FrameInputMap_firstFrame<I>(msg : FrameInputMap<I>) : Frame
+local function FrameInputMap_firstFrame<I>(msg : FrameInputMap<I>) : Frame
     if isempty(msg) then
         return frameNull
     end
@@ -402,7 +402,7 @@ export type PlayerInputMap<I> = {[PlayerHandle] : GameInput<I>}
 
 export type PlayerFrameInputMap<I> = {[PlayerHandle] : FrameInputMap<I>}
 
-function PlayerFrameInputMap_firstFrame<I>(msg : PlayerFrameInputMap<I>) : Frame
+local function PlayerFrameInputMap_firstFrame<I>(msg : PlayerFrameInputMap<I>) : Frame
     if isempty(msg) then
         return frameNull
     end
@@ -417,7 +417,7 @@ function PlayerFrameInputMap_firstFrame<I>(msg : PlayerFrameInputMap<I>) : Frame
     return firstFrame
 end
 
-function PlayerFrameInputMap_addInputs<I>(a : PlayerFrameInputMap<I>, b : PlayerFrameInputMap<I>)
+local function PlayerFrameInputMap_addInputs<I>(a : PlayerFrameInputMap<I>, b : PlayerFrameInputMap<I>)
     for player, frameData in pairs(b) do
         for frame, input in pairs(frameData) do
             -- TODO assert inputs are equal if present in a
@@ -532,7 +532,7 @@ function InputQueue_DiscardConfirmedFrames<I,J>(inputQueue : InputQueue<I,J>, fr
     --if inputQueue.last_frame_requested ~= frameNull then
     --    frame = math.min(frame, inputQueue.last_frame_requested)
     --end
-    Tomato(ctx(inputQueue), inputQueue.last_frame_requested ~= frameNull or inputQueue.last_frame_requested >= frame, "expected last_frame_requested: %d to be nil or >= frame: %d", inputQueue.last_frame_requested, frame)
+    Tomato(ctx(inputQueue), inputQueue.last_frame_requested == frameNull or inputQueue.last_frame_requested >= frame, "expected last_frame_requested: %d to be nil or >= frame: %d", inputQueue.last_frame_requested, frame)
 
     Potato(Potato.Info, ctx(inputQueue), "InputQueue_DiscardConfirmedFrames: frame: %d", frame)
 
@@ -1476,7 +1476,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     for player, data in pairs(inputs) do
         for i = udpproto.playerData[player].lastFrame+1, data.lastFrame, 1 do
             if data.inputs[i] == nil then
-                Tomato(ctx(udpproto), UDPPROTO_NO_QUEUE_NIL_INPUT, "nil inputs should only be possible if UDPPROTO_NO_QUEUE_NIL_INPUT is true") 
+                Eggplant(ctx(udpproto), UDPPROTO_NO_QUEUE_NIL_INPUT, "nil inputs should only be possible if UDPPROTO_NO_QUEUE_NIL_INPUT is true") 
                 Potato(Potato.Info, ctx(udpproto), "did not receive inputs for player %d frame %d assume their inputs are nil", player, i)
                 data.inputs[i] = GameInput_new(i, nil)
             end
