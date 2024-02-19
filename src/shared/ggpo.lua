@@ -493,7 +493,7 @@ local function InputQueue_DiscardConfirmedFrames<I,J>(inputQueue : InputQueue<I,
 
     local endFrame = frame
 
-    -- we need at least one frame in our map in order to track the last added frame, oops
+    -- we need at least one frame in our map for prediction (TODO maybe keep more than one frame)
     if endFrame == FrameMap_lastFrame(inputQueue.inputs) then
         endFrame = endFrame-1
     end
@@ -602,16 +602,15 @@ end
 -- NOTE this function will not work for out of order inputs, it can not tell the difference between frame delay shenanigans and out of order inputs
 -- TODO rename this function, we dont have a queue head concept anymore, instead, just call it AdjustFrameDelay or something
 -- advance the queue head to target frame and returns frame with delay applied
-local function InputQueue_GetFrameAdjustedForFrameDelay<I,J>(inputQueue : InputQueue<I,J>, frame : Frame) : Frame
-    Potato(Potato.Warn, ctx(inputQueue), "advancing queue head to frame %d.", frame)
+local function InputQueue_AdjustForFrameDelay<I,J>(inputQueue : InputQueue<I,J>, frame : Frame) : Frame
+    Potato(Potato.Info, ctx(inputQueue), "adjusting frame %d for frame delay", frame)
 
     -- NOTE in the future, when players can join mid game, the first input may not be on frame 0
     local expected_frame = (inputQueue.last_added_frame == frameNull and 0) or inputQueue.last_added_frame + 1
     frame += inputQueue.frame_delay
 
-    if not (expected_frame >= frameInit) then
         Tomato(ctx(inputQueue), expected_frame >= frameInit, "expected_frame %d must be >= 0", expected_frame)
-    end
+
 
     if expected_frame > frame then
         -- this can occur when the frame delay has dropped since the last time we shoved a frame into the system.  In this case, there's no room on the queue.  Toss it.
@@ -649,7 +648,7 @@ local function InputQueue_AddLocalInput<I,J>(inputQueue : InputQueue<I,J>, input
 
     inputQueue.last_user_added_frame = input.frame
 
-    local new_frame = InputQueue_GetFrameAdjustedForFrameDelay(inputQueue, input.frame)
+    local new_frame = InputQueue_AdjustForFrameDelay(inputQueue, input.frame)
     local new_input = GameInput_new(new_frame, input.input)
     if new_frame ~= frameNull then
         InputQueue_AddInput_Internal(inputQueue, new_input)
@@ -1149,6 +1148,7 @@ export type UDPProto<I> = {
     potato_severity : number,
 }
 
+-- NOTE due to lazy init, players may not be in the map, yikes!
 local function UDPProto_lastSynchronizedFrame<I>(udpproto : UDPProto<I>) : Frame
     local lastFrame = frameMax
     for player, data in pairs(udpproto.playerData) do
@@ -1427,7 +1427,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
 
     local inputs = msg.inputs
     if isempty(inputs)then
-        Potato(Potato.Warn, ctx(udpproto), "UDPProto_OnInput: Received empty msg")
+        Potato(Potato.Info, ctx(udpproto), "UDPProto_OnInput: Received empty msg")
         return
     end
 
@@ -1436,7 +1436,7 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
     end
 
     -- now fill in empty inputs from udpproto.playerData[player].lastFrame+1 to msg.inputs[player].lastFrame because they get omitted for performance if they were nil
-    --Tomato(ctx(udpproto), inputs[msg.player] ~= nil, "expected to receive inputs for peer") -- (need to add player to subscribe callback to do this)
+    Tomato(ctx(udpproto), inputs[udpproto.player] ~= nil, "expected to receive inputs for peer") -- (need to add player to subscribe callback to do this)
     for player, data in pairs(inputs) do
         for i = udpproto.playerData[player].lastFrame+1, data.lastFrame, 1 do
             if data.inputs[i] == nil then
@@ -1461,11 +1461,11 @@ local function UDPProto_OnInput<I>(udpproto : UDPProto<I>, msg :  UDPMsg_Input<I
 
     -- pass the event up
     -- TODO I tried to just delete data.lastFrame but that wasn't enough to make the luau typechecker happy :(
-    local input = {}
+    local inputs2 = {}
     for player, data in pairs(inputs) do
-        input[player] = data.inputs
+        inputs2[player] = data.inputs
     end
-    UDPProto_QueueEvent(udpproto, {t = "input", input = input})
+    UDPProto_QueueEvent(udpproto, {t = "input", input = inputs2})
 
 end
 
@@ -1665,8 +1665,7 @@ local function GGPO_Peer_OnUdpProtocolPeerEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, 
             print(tostring(peer.player) .. " GOT INPUTS FOR PLAYER " .. tostring(player) .. " FRAME: " .. tostring(first) .. " TO " .. tostring(last))
 
             -- you can allow this, but upstream should not be sending inputs for empty players
-            -- TODO replace with a warning, assert for now to catch bugs
-            assert(first ~= frameNull, "expected there to be inputs for player " .. tostring(player))
+            Eggplant(ctx(peer), first ~= frameNull, "expected there to be inputs for player " .. tostring(player))
 
             if first ~= frameNull then
                 for frame = first, last , 1 do
@@ -1746,10 +1745,11 @@ local function GGPO_Peer_DoPoll<T,I,J>(peer : GGPO_Peer<T,I,J>)
     local total_min_confirmed = current_frame - 1
 
     for player, udp in pairs(peer.udps) do
-        -- TODO this should not be lastReceivedFrame, it should be the min of all lastReceivedFrame from all downstream players
-        -- TODO NOTE this is different than original GGPO, in original GGPO, the peer has the  last received frame and connected status for all peers connected to player (N^2 pieces of data)
+        -- TODO this won't always work due to lazy init. If we have a lazy init player, we won't have a lastFrame for them in the map, and we will confirm past their frames which is bad :(
+        local lastSyncFrame = UDPProto_lastSynchronizedFrame(udp)
+        -- TODO NOTE this is different than original GGPO in P2P case, in original GGPO, the peer has the  last received frame and connected status for all peers connected to player (N^2 pieces of data)
         -- and takes the min of all those. I don't quite know why it does this at all, doing just one hop here seems sufficient/better. I guess because we might be disconnected to the peer so we rely on relayed information to get the last frame?
-        total_min_confirmed = math.min(udp.lastReceivedFrame, total_min_confirmed)
+        total_min_confirmed = math.min(lastSyncFrame, total_min_confirmed)
     end
 
     Potato(Potato.Trace, ctx(peer), "setting last confirmed frame to: %d", total_min_confirmed)
