@@ -307,7 +307,7 @@ export type GameConfig<I,J> = {
 }
 
 local function prediction_use_last_input<I>(frame : Frame, pastInputs : FrameInputMap<I>) : I?
-    local lastFrame = FrameInputMap_lastFrame(pastInputs)
+    local lastFrame = FrameMap_lastFrame(pastInputs)
     if lastFrame == frameNull then
         return nil
     end
@@ -368,54 +368,9 @@ local function FrameInputMap_potato<I>(msg : FrameInputMap<I>) : string
     return r
 end
 
--- TODO DELETE replace with FrameMap_lastFrame
-local function FrameInputMap_lastFrame<I>(msg : FrameInputMap<I>) : Frame
-    if isempty(msg) then
-        return frameNull
-    end
-
-    local lastFrame = frameMin
-    for frame, input in pairs(msg) do
-        if frame > lastFrame then
-            lastFrame = frame
-        end
-    end
-    return lastFrame
-end
-
--- TODO DELETE replace with FrameMap_firstFrame
-local function FrameInputMap_firstFrame<I>(msg : FrameInputMap<I>) : Frame
-    if isempty(msg) then
-        return frameNull
-    end
-
-    local firstFrame = frameMax
-    for frame, input in pairs(msg) do
-        if frame < firstFrame then
-            firstFrame = frame
-        end
-    end
-    return firstFrame
-end
-
 export type PlayerInputMap<I> = {[PlayerHandle] : GameInput<I>}
 
 export type PlayerFrameInputMap<I> = {[PlayerHandle] : FrameInputMap<I>}
-
-local function PlayerFrameInputMap_firstFrame<I>(msg : PlayerFrameInputMap<I>) : Frame
-    if isempty(msg) then
-        return frameNull
-    end
-
-    local firstFrame = frameMax
-    for player, data in pairs(msg) do
-        local f = FrameInputMap_firstFrame(data)
-        if f < firstFrame then
-            firstFrame = f
-        end
-    end
-    return firstFrame
-end
 
 local function PlayerFrameInputMap_addInputs<I>(a : PlayerFrameInputMap<I>, b : PlayerFrameInputMap<I>)
     for player, frameData in pairs(b) do
@@ -502,7 +457,7 @@ local function InputQueue_new<I,J>(gameConfig : GameConfig<I,J>, owner : PlayerH
 
         potato = function(self : InputQueue<I,J>)
             return string.format("InputQueue: owner %d, player: %d, last_user_added_frame: %d, last_added_frame: %d, first_incorrect_frame: %d, last_frame_requested: %d, frame_delay: %d, firstFrame(prediction_map): %d", 
-                self.owner, self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay, FrameInputMap_firstFrame(self.prediction_map))
+                self.owner, self.player, self.last_user_added_frame, self.last_added_frame, self.first_incorrect_frame, self.last_frame_requested, self.frame_delay, FrameMap_firstFrame(self.prediction_map))
         end,
         potato_severity = Potato.Warn,
     }
@@ -534,12 +489,12 @@ local function InputQueue_DiscardConfirmedFrames<I,J>(inputQueue : InputQueue<I,
 
     Potato(Potato.Info, ctx(inputQueue), "InputQueue_DiscardConfirmedFrames: frame: %d", frame)
 
-    local start = FrameInputMap_firstFrame(inputQueue.inputs)
+    local start = FrameMap_firstFrame(inputQueue.inputs)
 
     local endFrame = frame
 
     -- we need at least one frame in our map in order to track the last added frame, oops
-    if endFrame == FrameInputMap_lastFrame(inputQueue.inputs) then
+    if endFrame == FrameMap_lastFrame(inputQueue.inputs) then
         endFrame = endFrame-1
     end
 
@@ -558,7 +513,7 @@ local function InputQueue_ResetPrediction<I,J>(inputQueue : InputQueue<I,J>, fra
 
     
     -- we've rolled back at least as far back as first_incorrect_frame so we can just clear the prediction map, the predictions will get regenerated as we request inputs
-    local firstpredictedframe = FrameInputMap_firstFrame(inputQueue.prediction_map)
+    local firstpredictedframe = FrameMap_firstFrame(inputQueue.prediction_map)
     Tomato(ctx(inputQueue), firstpredictedframe == frameNull or firstpredictedframe >= frame, "expected first frame of prediction map %d to be >= %d", firstpredictedframe, frame)     
     inputQueue.prediction_map = {}
 
@@ -666,7 +621,7 @@ local function InputQueue_GetFrameAdjustedForFrameDelay<I,J>(inputQueue : InputQ
 
     -- this can occur when the frame delay has been increased since the last time we shoved a frame into the system.  We need to replicate the last frame in the queue several times in order to fill the space left.
     if expected_frame < frame then
-        local last_frame = FrameInputMap_lastFrame(inputQueue.inputs)
+        local last_frame = FrameMap_lastFrame(inputQueue.inputs)
         while expected_frame < frame do
             Potato(Potato.Warn, ctx(inputQueue), "Adding padding frame %d to account for change in frame delay.", expected_frame)
             local input : I?
@@ -1444,7 +1399,7 @@ end
 local function UDPProto_ClearInputsBefore<I>(udpproto : UDPProto<I>, frame : Frame)
     -- remember, the peer will ack the min frame of all inputs they receive for now so it's OK to clear frames for ALL players
     for player, data in pairs(udpproto.playerData) do
-        local start = FrameInputMap_firstFrame(data.pending_output)
+        local start = FrameMap_firstFrame(data.pending_output)
         if start ~= frameNull and start <= frame then
             
             for i = start, frame, 1 do
@@ -1704,8 +1659,8 @@ local function GGPO_Peer_OnUdpProtocolPeerEvent<T,I,J>(peer : GGPO_Peer<T,I,J>, 
             
             -- TODO maybe make this more efficient...
             -- iterate through the frame in order and add them to sync
-            local first = FrameInputMap_firstFrame(inputs)
-            local last = FrameInputMap_lastFrame(inputs)
+            local first = FrameMap_firstFrame(inputs)
+            local last = FrameMap_lastFrame(inputs)
 
             print(tostring(peer.player) .. " GOT INPUTS FOR PLAYER " .. tostring(player) .. " FRAME: " .. tostring(first) .. " TO " .. tostring(last))
 
@@ -1870,8 +1825,8 @@ return {
     tablecount = tablecount,
 
     -- exposed for testing
-    FrameInputMap_lastFrame = FrameInputMap_lastFrame,
-    FrameInputMap_firstFrame = FrameInputMap_firstFrame,
+    FrameMap_lastFrame = FrameMap_lastFrame,
+    FrameMap_firstFrame = FrameMap_firstFrame,
 
     UDPMsg_potato = UDPMsg_potato,
 

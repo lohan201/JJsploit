@@ -1,26 +1,18 @@
 
 
 ## WIP TODO IGNORE
--make all functions local
+-cleanup logging
 -maybe replace frameNull with nil...
-DONE-inputqueue needs explicit las frame tracking because sometimes we clear out all the cnofirmed frames
-DONE-isprodxy is udpproto is wrong, you need to have ggpo peer take the input and share with other udpportos
-DONE/IGNORE-nobody is calling SendPendingOutput on CARS (because we never add input to it)
-DONE-fix input queu prediction
 -MockGame Functionality
   -out of order packets
 -repeat test with UDPPROTO_NO_QUEUE_NIL_INPUT
   -also move UDPPROTO_NO_QUEUE_NIL_INPUT into config
 -more tests
-  INPROGRESS-CARS test
-  INPROGRESS-force longer desync
+  DONE-CARS test
+  DONE-force longer desync
   -component tests for
     -inputqueue
     -sync
-IGNORE-switch to jest
-IGNORE-since you added potato/severity stuff, you probably need custom serialize/deserialize for gameinput 
-  -just do gameinput_serializable without the potato
-  -just delete the potato stuff
 -cleanup routine for savedstate in synced
 -add override and consistency assert in InputQueue_AddInput
   -need to dinstguish between local input and remote input and local player remote input
@@ -55,6 +47,15 @@ V2-figure out how to handle initial player data
   -send player data as server input on frame 0
 
 
+DONE-make all functions local
+DONE-inputqueue needs explicit las frame tracking because sometimes we clear out all the cnofirmed frames
+DONE-isprodxy is udpproto is wrong, you need to have ggpo peer take the input and share with other udpportos
+DONE/IGNORE-nobody is calling SendPendingOutput on CARS (because we never add input to it)
+DONE-fix input queu prediction
+IGNORE-switch to jest
+IGNORE-since you added potato/severity stuff, you probably need custom serialize/deserialize for gameinput 
+  -just do gameinput_serializable without the potato
+  -just delete the potato stuff
 DONE-call GGPO_Peer_DoPoll inside GGPO_Peer_AdvanceFrame
   -- TODO maybe poll here?
 IGNORE-add polling timer to udpproto include calling UDPProto_OnLoopPoll
