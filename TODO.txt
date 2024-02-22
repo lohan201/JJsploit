@@ -1,11 +1,18 @@
 
 
 ## WIP TODO IGNORE
+-fix udpproto owner data lastFrame issue
+  -causing harmless asserts to hit due to udproto tryig to pass on nil inputs from the owner 
+-fix lazy init tracking problems
+  -- TODO this won't always work due to lazy init. If we have a lazy init player, we won't have a lastFrame for them in the map, and we will confirm past their frames which is bad :(
+  -should you just have an explicit setup routine? and save lazy init for players being added mid game 
+    -this will still have the problem where you don't know about a lazy init player and discard confirmed frames after their inputs you don't know about
+    -you can solve this wil explicit player add packets though that force the lazy init of those players
 -cleanup logging
 -maybe replace frameNull with nil...
 -MockGame Functionality
   -out of order packets
--repeat test with UDPPROTO_NO_QUEUE_NIL_INPUT
+DONE/SORTOF-repeat test with UDPPROTO_NO_QUEUE_NIL_INPUT
   -also move UDPPROTO_NO_QUEUE_NIL_INPUT into config
 -more tests
   DONE-CARS test
@@ -15,7 +22,7 @@
     -sync
 -cleanup routine for savedstate in synced
 -add override and consistency assert in InputQueue_AddInput
-  -need to dinstguish between local input and remote input and local player remote input
+  DONE-need to dinstguish between local input and remote input and local player remote input
   -prob OK to assert that remote input is never double added?
   -do i need to track last added remote/local input?
   -ideally the same mechanism can be used to assert/override inputs that arrive out of order or from non auth peers 
