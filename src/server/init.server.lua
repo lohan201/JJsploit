@@ -1,1 +1,4 @@
-print("Hello world, from server!")
+local GGPORoblox = require(game.ReplicatedStorage.Shared.ggporoblox)
+
+
+GGPORoblox.GGPORoblox_new()

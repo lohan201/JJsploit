@@ -1,8 +1,9 @@
+--!strict
 -- Queue implementation in Lua
 -- more efficient than table.insert/remove which reindexes the table
 
 type QueueImpl<T> = {
-    __index: QueueImpl<T>,
+    --__index: QueueImpl<T>,
     equeue: (self: Queue<T>, x: T) -> (),
     dequeue: (self: Queue<T>) -> T?,
 
@@ -25,7 +26,7 @@ local function makeQueue<T>() : Queue<T>
     -- setup the metatable
     -- note, this will create a new "prototype" for each call, which is NBD 
     local Queue: QueueImpl<T> = {} :: QueueImpl<T>
-    Queue.__index = Queue
+    --Queue.__index = Queue
 
     -- ctor stuff
     local queue = {}

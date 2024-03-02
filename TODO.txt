@@ -1,6 +1,17 @@
+:: gpporoblox design notes
 
+things it needs to do
+-manage start game timing
+-manage initial game sync
+
+
+startup process
+-all players join, expect them to have GGPO initialized (to set up event listeners)
+-cars sets up GGPO
 
 ## WIP TODO IGNORE
+-pull out utility methods into its own file
+-maybe pull out types into its own file
 -fix udpproto owner data lastFrame issue
   -causing harmless asserts to hit due to udproto tryig to pass on nil inputs from the owner 
 -fix lazy init tracking problems

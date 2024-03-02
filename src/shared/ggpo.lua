@@ -259,6 +259,7 @@ export type GameInput<I> = {
     -- use this for stuff like per-player startup data, random events, etc
     -- this is distinct from input because it's prediction is always nil
     -- TODO when you add this, don't forget to update the prediction code in InputQueue
+    -- TODO but do you really need this though? Just have a custom prediction function for GameInput<I> you know :O
     --gameInfo : J?, 
 
     -- set to whatever type best represents your game input. Keep this object small! Maybe use a buffer! https://devforum.roblox.com/t/introducing-luau-buffer-type-beta/2724894
@@ -1574,6 +1575,9 @@ end
 
 
 -- GGPO_Peer
+-- T: game state type
+-- I: player input type
+-- J: game info type
 export type GGPO_Peer<T,I,J> = {
     
     gameConfig : GameConfig<I,J>,
