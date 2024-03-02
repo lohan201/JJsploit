@@ -23,6 +23,7 @@ export type Queue<T> = typeof(setmetatable({} :: { startIndex: number, endIndex:
 -- the prototype pattern won't allow us to do this
 local function makeQueue<T>() : Queue<T>
 
+    -- TODO delete, this is unecessary if you do the factory pattern
     -- setup the metatable
     -- note, this will create a new "prototype" for each call, which is NBD 
     local Queue: QueueImpl<T> = {} :: QueueImpl<T>
@@ -35,12 +36,12 @@ local function makeQueue<T>() : Queue<T>
     queue.queue = {}
     setmetatable(queue, Queue)
 
-    queue.enqueue = function(self, x)
+    queue.enqueue = function(self : Queue<T>, x : T)
         self.queue[self.endIndex] = x
         self.endIndex += 1
     end
 
-    queue.dequeue = function(self)
+    queue.dequeue = function(self : Queue<T>) : T?
         if self.startIndex == self.endIndex then
             return nil
         end

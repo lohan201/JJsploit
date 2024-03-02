@@ -86,7 +86,7 @@ local function makeBimap<K,V>() : Bimap<K,V>
         self:insert(k, v)
       end
     end
-    
+
     return bimap
 end
 
