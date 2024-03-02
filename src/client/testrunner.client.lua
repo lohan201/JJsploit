@@ -1,3 +1,3 @@
-local TestEZ = require(game.ReplicatedStorage.Shared.Libs.TestEZ)
+local TestEZ = require(game.ReplicatedStorage.Shared.Packages.TestEZ)
 
 TestEZ.TestBootstrap:run({ game.ReplicatedStorage.Shared })
