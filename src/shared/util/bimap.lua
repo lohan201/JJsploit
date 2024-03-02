@@ -1,8 +1,7 @@
 --!strict
--- Queue implementation in Lua
--- more efficient than table.insert/delete which reindexes the table
+-- bimap implementation in Lua
 
-type BimapImpl<K,V> = {
+type Bimap_<K,V> = {
     
     insert: (self: Bimap<K,V>,  k : K, v : V) -> (),
     delete: (self: Bimap<K,V>, key : K) -> (),
@@ -10,31 +9,46 @@ type BimapImpl<K,V> = {
     lookupR: (self: Bimap<K,V>, value : V) -> K,
     insertMany: (self: Bimap<K,V>,  {[K] : V}) -> (),
 
-    __newindex: (self: Bimap<K,V>, key : K, value : V) -> (),
-    __index: (self: Bimap<K,V>, key : K) -> V,
-    
-
     forwardMap : {[K] : V},
     backwardMap : { [V] : K},
 }
 
-export type Bimap<K,V> = typeof(setmetatable({} :: { forwardMap : {[K] : V}, backwardMap : { [V] : K}, }, {} :: BimapImpl<K,V>))
+type BimapMT<K,V> = {
+    __newindex: (self: Bimap<K,V>, key : K, value : V) -> (),
+    __index: (self: Bimap<K,V>, key : K) -> V,
+}
 
--- we use the factory pattern in order to pass in the generic type
--- the prototype pattern won't allow us to do this
+export type Bimap<K,V> = typeof(setmetatable({} :: Bimap_<K,V>, {} :: BimapMT<K,V>))
+
+
+--[[
+local bimapMTAny = {
+    __newindex = function(self : Bimap<any, any>, key : any, value : any)
+        self:insert(key, value)
+    end,
+    __index = function(self : Bimap<any, any>, key : any) : any
+        return self:lookup(key)
+    end
+}]]
+
+-- we use the factory pattern due to the generic types
+-- we could probably also do this with the prototype pattern by using the generic `any` type
 local function makeBimap<K,V>() : Bimap<K,V>
 
-    -- TODO I think the whole way your doing classes here might be more complicated than it needs to be...
-    -- setup the metatable
-    -- note, this will create a new "prototype" for each call, which is NBD 
-    local Bimap: BimapImpl<K,V> = {} :: BimapImpl<K,V>
-    
+    local bimapMT : BimapMT<K,V> = {
+        __newindex = function(self : Bimap<K,V>, key : K, value : V)
+            self:insert(key, value)
+        end,
+        __index = function(self : Bimap<K,V>, key : K) : V
+            return self:lookup(key)
+        end
+    }
 
     -- ctor stuff
     local bimap = {}
     bimap.forwardMap = {}
     bimap.backwardMap = {}
-    setmetatable(bimap, Bimap)
+    setmetatable(bimap, bimapMT)
 
     bimap.delete = function(self, k)
       local v = self.forwardMap[k]
@@ -72,11 +86,7 @@ local function makeBimap<K,V>() : Bimap<K,V>
         self:insert(k, v)
       end
     end
-
-    -- is this right?
-    Bimap.__index = bimap.lookup 
-    Bimap.__newindex = bimap.insert
-
+    
     return bimap
 end
 

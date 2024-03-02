@@ -56,8 +56,7 @@ end
 -- initialize the agme 
 local function GGPORobloxRCC_initializeGameAndBeginSynchronization(ggporoblox : GGPORobloxRCC, players :  {[GGPO.PlayerHandle] : Player}, timeout : number)
   
-  ggporoblox.playerMapping.insertMany(players)
-  --insertMany(playerMapping)
+  ggporoblox.playerMapping:insertMany(players)
 
 end
 
