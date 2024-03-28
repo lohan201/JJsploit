@@ -58,6 +58,8 @@ local function GGPORobloxRCC_initializeGameAndBeginSynchronization(ggporoblox : 
   
   ggporoblox.playerMapping:insertMany(players)
 
+  ggporoblox.state = "Synchronizing" :: GGPORobloxState
+
 end
 
 

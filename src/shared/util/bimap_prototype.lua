@@ -8,21 +8,25 @@ type BimapData<K,V> = {
     backwardMap : { [V] : K},
 }
 
-type BimapImpl<K,V> = {
-    insert: (self: Bimap<K,V>,  k : K, v : V) -> (),
-    delete: (self: Bimap<K,V>, key : K) -> (),
-    lookup: (self: Bimap<K,V>, key : K) -> V,
-    lookupR: (self: Bimap<K,V>, value : V) -> K,
-    insertMany: (self: Bimap<K,V>,  {[K] : V}) -> (),
-} 
 
 type BimapMT<K,V> = {
     __newindex: (self: Bimap<K,V>, key : K, value : V) -> (),
     __index: (self: Bimap<K,V>, key : K) -> V,
 }
 
-export type Bimap<K,V> = typeof(setmetatable({} :: BimapData<K,V>, {} :: BimapImpl<K,V> & BimapMT<K,V>))
+type BimapImpl<K,V> = {
+    insert: (self: Bimap<K,V>,  k : K, v : V) -> (),
+    delete: (self: Bimap<K,V>, key : K) -> (),
+    lookup: (self: Bimap<K,V>, key : K) -> V,
+    lookupR: (self: Bimap<K,V>, value : V) -> K,
+    insertMany: (self: Bimap<K,V>,  {[K] : V}) -> (),
+} & BimapMT<K,V>
 
+
+export type Bimap<K,V> = typeof(setmetatable({} :: BimapData<K,V>, {} :: BimapImpl<K,V>))
+
+
+--local Bimap: BimapImpl<any,any> = {} :: BimapImpl<any,any>
 
 local bimapImpl = {
   delete = function(self : Bimap<any, any>, k : any)
