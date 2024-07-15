@@ -27,21 +27,21 @@ export type GGPORobloxRCC = GGPORobloxRCC_ & GGPORobloxEvents & GGPORobloxCommon
 
 
 
-local function GGPORobloxRCC_new(isCars : boolean) : GGPORobloxRCC
+local function GGPORobloxRCC_new() : GGPORobloxRCC
   local root = Instance.new("Folder", game.Workspace)
   root.Name = "ggpo-roblox"
-  local cars = Instance.new("Folder", root)
-  cars.Name = "cars"
-  local reliableRemoteEvent = Instance.new("RemoteEvent", cars)
+  local reliableRemoteEvent = Instance.new("RemoteEvent", root)
   local unreliableRemoteEvent = Instance.new("UnreliableRemoteEvent", root)
 
   reliableRemoteEvent.OnServerEvent:Connect(function(player : Player, ...)
-    print("Received reliableevent from player " .. tostring(player.UserId))
+    print("Received reliable event from player " .. tostring(player.UserId))
 
     -- TODO synchronization
   end)
   unreliableRemoteEvent.OnServerEvent:Connect(function(player : Player, ...)
     print("Received unreliable event from player " .. tostring(player.UserId))
+
+    -- TODO pass input to ggpo
   end)
 
   return {
@@ -96,6 +96,8 @@ local function GGPORobloxPlayer_new(owner : GGPO.PlayerHandle) : GGPORobloxPlaye
   end)
   unreliableRemoteEvent.OnClientEvent:Connect(function(...)
     print("Received unreliable event from server")
+
+    -- TODO pass input to ggpo
   end)
 
   return {
@@ -111,4 +113,5 @@ end
 
 return {
   GGPORobloxRCC_new = GGPORobloxRCC_new,
+  GGPORobloxPlayer_new = GGPORobloxPlayer_new,
 }

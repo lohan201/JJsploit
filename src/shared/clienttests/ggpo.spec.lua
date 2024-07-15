@@ -1,4 +1,4 @@
-local GGPO = require(script.Parent.ggpo)
+local GGPO = require(script.Parent.Parent.ggpo)
 
 
 -- simple deep copy, does not handle metatables or recursive tables!!

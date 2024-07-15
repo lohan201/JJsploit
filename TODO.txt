@@ -7,7 +7,11 @@ things it needs to do
 
 startup process
 -all players join, expect them to have GGPO initialized (to set up event listeners)
--cars sets up GGPO
+SKIP-send synchronization event, wait to receive synchronization event response for all players
+-send start event, include server_synch_start_time https://create.roblox.com/docs/reference/engine/globals/RobloxGlobals
+-upon receiving start event, start GGPO at time  server_synch_start_time + 3 sec - ping https://create.roblox.com/docs/reference/engine/classes/Player#GetNetworkPing
+
+
 
 ## WIP TODO IGNORE
 -pull out utility methods into its own file

@@ -9,23 +9,23 @@ return function()
                 b:insert(i, i+1)
             end
             for i = 1, 10, 1 do
-                expect(b:get(i), i+1) 
+                expect(b:lookup(i), i+1) 
             end
             for i = 1, 10, 1 do
-                expect(b:reverse_get(i+1), i)
+                expect(b:lookupR(i+1), i)
             end
 
-            b:remove(1)
+            b:delete(1)
             b:insert(2, nil)
-            expect (b:get(1), nil)
-            expect (b:get(2), nil)
-            expect (b:reverse_get(1+1), nil)
-            expect (b:reverse_get(2+1), nil)
+            expect (b:lookup(1), nil)
+            expect (b:lookup(2), nil)
+            expect (b:lookupR(1+1), nil)
+            expect (b:lookupR(2+1), nil)
             for i = 3, 10, 1 do
-                expect(b:get(i), i+1) 
+                expect(b:lookup(i), i+1) 
             end
             for i = 3, 10, 1 do
-                expect(b:reverse_get(i+1), i)
+                expect(b:lookupR(i+1), i)
             end
         end)
         it("index methods", function()
@@ -37,20 +37,20 @@ return function()
                 expect(b[i], i+1) 
             end
             for i = 1, 10, 1 do
-                expect(b:reverse_get(i+1), i)
+                expect(b:lookupR(i+1), i)
             end
 
-            b[1] == nil
-            b[2] == nil
+            b[1] = nil
+            b[2] = nil
             expect (b[1], nil)
             expect (b[2], nil)
-            expect (b:reverse_get(1+1), nil)
-            expect (b:reverse_get(2+1), nil)
+            expect (b:lookupR(1+1), nil)
+            expect (b:lookupR(2+1), nil)
             for i = 3, 10, 1 do
                 expect(b[i], i+1) 
             end
             for i = 3, 10, 1 do
-                expect(b:reverse_get(i+1), i)
+                expect(b:lookupR(i+1), i)
             end
         end)
     end)

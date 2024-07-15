@@ -35,20 +35,10 @@ local bimapMTAny = {
 -- we could probably also do this with the prototype pattern by using the generic `any` type
 local function makeBimap<K,V>() : Bimap<K,V>
 
-    local bimapMT : BimapMT<K,V> = {
-        __newindex = function(self : Bimap<K,V>, key : K, value : V)
-            self:insert(key, value)
-        end,
-        __index = function(self : Bimap<K,V>, key : K) : V
-            return self:lookup(key)
-        end
-    }
-
     -- ctor stuff
     local bimap = {}
     bimap.forwardMap = {}
     bimap.backwardMap = {}
-    setmetatable(bimap, bimapMT)
 
     bimap.delete = function(self, k)
       local v = self.forwardMap[k]
@@ -86,6 +76,16 @@ local function makeBimap<K,V>() : Bimap<K,V>
         self:insert(k, v)
       end
     end
+
+    local bimapMT : BimapMT<K,V> = {
+        __newindex = function(self : Bimap<K,V>, key : K, value : V)
+            self:insert(key, value)
+        end,
+        __index = function(self : Bimap<K,V>, key : K) : V
+            return self:lookup(key)
+        end
+    }
+    setmetatable(bimap, bimapMT)
 
     return bimap
 end
