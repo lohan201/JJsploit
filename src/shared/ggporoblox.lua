@@ -26,6 +26,10 @@ export type GGPORobloxRCC_ = {
 export type GGPORobloxRCC = GGPORobloxRCC_ & GGPORobloxEvents & GGPORobloxCommon
 
 
+local function isMessageInput(message : any) : boolean
+  -- TODO
+  return type(message) == "table" and message.input ~= nil
+end
 
 local function GGPORobloxRCC_new() : GGPORobloxRCC
   local root = Instance.new("Folder", game.Workspace)
@@ -41,7 +45,10 @@ local function GGPORobloxRCC_new() : GGPORobloxRCC
   unreliableRemoteEvent.OnServerEvent:Connect(function(player : Player, ...)
     print("Received unreliable event from player " .. tostring(player.UserId))
 
-    -- TODO pass input to ggpo
+    if isMessageInput(...) then
+      print("Received input message from player " .. tostring(player.UserId))
+      -- TODO pass input to ggpo
+    end
   end)
 
   return {
@@ -63,11 +70,27 @@ local function GGPORobloxRCC_initializeGameAndBeginSynchronization(ggporoblox : 
 end
 
 
+
+-- TODO add comments
+
 local function GGPORobloxRCC_startGame(ggporoblox : GGPORobloxRCC)
 
 
   local config = GGPO.defaultGameConfig
-  --local ggpo = GGPO.GGPO_Peer_new(config, callbacks, GGPO.carsHandle)
+
+  --TODO where do these come from
+  local callbacks = {
+    SaveGameState = function(frame : Frame)
+      return {}
+    end,
+    LoadGameState = function(data : {}, frame : Frame)
+    end,
+    AdvanceFrame = function()
+      -- TODO
+    end,
+  }
+
+  local ggpo = GGPO.GGPO_Peer_new(config, callbacks, GGPO.carsHandle)
 
   
 end
