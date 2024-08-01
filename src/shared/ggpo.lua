@@ -1551,7 +1551,7 @@ function UDPProto_OnMsg<I>(udpproto : UDPProto<I>, msg : UDPMsg<I>)
     --_last_recv_time = Platform::GetCurrentTimeMS();
 end
 
-local function UDPProto_GetNetworkStats(udpproto : UDPProto<I>) : UDPNetworkStats
+local function UDPProto_GetNetworkStats<I>(udpproto : UDPProto<I>) : UDPNetworkStats
 
     local maxQueueLength = 0
     for player, data in pairs(udpproto.playerData) do
