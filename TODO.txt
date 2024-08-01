@@ -14,6 +14,7 @@ SKIP-send synchronization event, wait to receive synchronization event response 
 
 
 ## WIP TODO IGNORE
+-consider getting rid of the I parameter for gamestate stuff?
 -pull out utility methods into its own file
 -maybe pull out types into its own file
 -fix udpproto owner data lastFrame issue

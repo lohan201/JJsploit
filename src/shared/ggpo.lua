@@ -255,13 +255,6 @@ export type GameInput<I> = {
 
     -- TODO disconnect info 
 
-    -- TODO
-    -- use this for stuff like per-player startup data, random events, etc
-    -- this is distinct from input because it's prediction is always nil
-    -- TODO when you add this, don't forget to update the prediction code in InputQueue
-    -- TODO but do you really need this though? Just have a custom prediction function for GameInput<I> you know :O
-    --gameInfo : J?, 
-
     -- set to whatever type best represents your game input. Keep this object small! Maybe use a buffer! https://devforum.roblox.com/t/introducing-luau-buffer-type-beta/2724894
     -- nil represents no input? (i.e. AddLocalInput was never called)
     input: I?,
@@ -288,6 +281,31 @@ local function GameInput_new<I>(frame : Frame, input : I?) : GameInput<I>
     return r
 end
 
+
+export type PredictionFn<I> = (frame : Frame, pastInputs : FrameInputMap<I>) -> I?
+
+-- helper type intended to be used as the `I` type in GameConfig
+-- the `info` parameter always has nil prediction
+-- note that there is a redundant nil representation when both input and info are nil :(
+export type InputWithInfo<I,J> = {
+    input : I?,
+    info : J?,
+}
+
+-- add nil prediction to the info field with a regular prediction function
+local function makeInputWithInfoPrediction<I,J>(inputPrediction : PredictionFn<I>) : PredictionFn<InputWithInfo<I,J>>
+    return function(frame : Frame, pastInputs : FrameInputMap<InputWithInfo<I,J>>)
+        local filteredPastInputs = {}
+        for f, x in pairs(pastInputs) do
+            if x.input ~= nil and x.input.input ~= nil then
+                filteredPastInputs[f] = GameInput_new(f, x.input.input)
+            end
+        end
+        local p = inputPrediction(frame, filteredPastInputs)
+        return { input = p, info = nil }
+    end
+end
+-- TODO remove J parameter
 export type GameConfig<I,J> = {
     inputDelay: FrameCount,
     maxPredictionFrames: FrameCount,
@@ -300,7 +318,7 @@ export type GameConfig<I,J> = {
     inputEquals : ((I?,I?) -> boolean),
 
     -- TODO
-    --prediction : (frame : Frame, pastInputs : FrameInputMap<I>) -> I?,
+    --prediction : PredictionFn<I>,
 
     -- TODO eventually for performance
     --serializeInput : (I,J) -> string,
