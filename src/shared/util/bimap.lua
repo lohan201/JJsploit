@@ -1,5 +1,6 @@
 --!strict
 -- bimap implementation in Lua
+-- this version allocates functions for each instance :(
 
 type Bimap_<K,V> = {
     

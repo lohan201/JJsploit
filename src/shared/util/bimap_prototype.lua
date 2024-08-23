@@ -1,6 +1,6 @@
 --!strict
 -- bimap implementation in Lua
--- same as the other bimap, except with the prototype pattern
+-- same as the other bimap, except with the prototype pattern (so functions only need to be allocated once)
 -- doesn't work due to typeof(setmetatable({} :: BimapData<K,V>, {} :: BimapImpl<K,V> & BimapMT<K,V>)) not propogating the types down 
 
 type BimapData<K,V> = {

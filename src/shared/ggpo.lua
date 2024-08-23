@@ -1188,11 +1188,6 @@ local function UDPProto_new<I>(owner : PlayerHandle, player : PlayerHandle, endp
     local playerData = {}
     playerData[owner] = UDPProto_Player_new()
 
-    -- DELETE
-    --for _, proxy in pairs(player.proxy) do
-    --    playerData[proxy] = UDPProto_Player_new()
-    --end
-
     local r = {
         owner = owner,
         player = player,
@@ -1252,6 +1247,8 @@ local function UDPProto_new<I>(owner : PlayerHandle, player : PlayerHandle, endp
     return r
 end
 
+-- TODO don't allow lazy player init
+-- replace these calls with an assert and do pre init when calling GGPO_Peer_AddPlayer
 local function UDPProto_LazyInitPlayer<I>(udpproto : UDPProto<I>, player : PlayerHandle) : UDPProto_Player<I>
     local r = udpproto.playerData[player]
     if r == nil then
@@ -1652,6 +1649,8 @@ local function GGPO_Peer_AddPeer<T,I>(peer : GGPO_Peer<T,I>, player : PlayerHand
     assert(peer.udps[player] == nil, "expected peer to not already exist")
     peer.udps[player] = UDPProto_new(peer.player, player, endpoint)
 
+    -- TODO init peer in Sync
+
     if peer.isProxy then
         Tomato(ctx(peer), peer.sync.framecount == frameInit, "adding peers after frameInit not supported")
         -- TODO send most recently synced state to newly added peer
@@ -1763,9 +1762,11 @@ local function GGPO_Peer_DoPoll<T,I>(peer : GGPO_Peer<T,I>)
     -- do rollback if needed
     local rollback_frame = Sync_CheckSimulation(peer.sync)
 
+    -- TODO should be ok to uncomment?
     --if peer.udps[carsHandle] then
         -- we should never rollback past the last received frame from cars (which is authoritative)
-        -- TODO note that subscribe calls are asynchronous so the below may fail if the script has yielded since the last time we polled for events and updated Sync
+        -- TODO note that subscribe calls are asynchronous so the below may fail if the script has yielded since the last time we polled for events and updated Sync 
+        -- WAIT no, I think this is ok, because we polled just earlier in this function so it should not have yielded between then and now.
         --assert(rollback_frame >= peer.udps[carsHandle].lastReceivedFrame )
     --end
 
@@ -1778,8 +1779,10 @@ local function GGPO_Peer_DoPoll<T,I>(peer : GGPO_Peer<T,I>)
     local total_min_confirmed = current_frame - 1
 
     for player, udp in pairs(peer.udps) do
+
         -- TODO this won't always work due to lazy init. If we have a lazy init player, we won't have a lastFrame for them in the map, and we will confirm past their frames which is bad :(
         local lastSyncFrame = UDPProto_lastSynchronizedFrame(udp)
+
         -- TODO NOTE this is different than original GGPO in P2P case, in original GGPO, the peer has the  last received frame and connected status for all peers connected to player (N^2 pieces of data)
         -- and takes the min of all those. I don't quite know why it does this at all, doing just one hop here seems sufficient/better. I guess because we might be disconnected to the peer so we rely on relayed information to get the last frame?
         total_min_confirmed = math.min(lastSyncFrame, total_min_confirmed)

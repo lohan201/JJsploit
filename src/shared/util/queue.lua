@@ -1,10 +1,10 @@
 --!strict
 -- Queue implementation in Lua
 -- more efficient than table.insert/remove which reindexes the table
+-- this version allocates functions for each instance :(
 
 type QueueImpl<T> = {
-    --__index: QueueImpl<T>,
-    equeue: (self: Queue<T>, x: T) -> (),
+    enqueue: (self: Queue<T>, x: T) -> (),
     dequeue: (self: Queue<T>) -> T?,
 
     queue : {[number] : T},
